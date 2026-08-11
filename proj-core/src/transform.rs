@@ -278,7 +278,11 @@ impl Transform {
         })
     }
 
-    /// Transform a single coordinate.
+    /// Transform a single 2D coordinate.
+    ///
+    /// This API is XY-only. Transforms involving a geocentric (ECEF) CRS must
+    /// use [`Self::convert_3d`]; calling this method returns an error instead of
+    /// silently dropping Z.
     pub fn convert<T: Transformable>(&self, coord: T) -> Result<T> {
         let c = coord.to_coord();
         let result = self.convert_coord(c)?;
@@ -327,10 +331,11 @@ impl Transform {
         Ok(T::from_coord3d(result))
     }
 
-    /// Transform a single coordinate and report the operation actually used.
+    /// Transform a single 2D coordinate and report the operation actually used.
     ///
-    /// This 2D API is XY-only: it does not apply or sample configured vertical
-    /// transforms.
+    /// This API is XY-only: it does not apply or sample configured vertical
+    /// transforms, and transforms involving a geocentric (ECEF) CRS must use
+    /// [`Self::convert_3d_with_diagnostics`].
     ///
     /// When the selected grid-backed operation misses grid coverage, this
     /// reports the coverage misses and the lower-ranked fallback operation that

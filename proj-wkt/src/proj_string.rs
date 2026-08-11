@@ -65,6 +65,7 @@ fn parse_proj_params(params: &HashMap<String, String>) -> Result<CrsDef> {
 
     match proj {
         "longlat" | "lonlat" | "latlong" | "latlon" => parse_geographic(params),
+        "cart" | "geocent" => parse_geocentric(params),
         "utm" => parse_utm(params),
         "tmerc" => parse_tmerc(params),
         "merc" => parse_merc(params),
@@ -418,6 +419,18 @@ fn parse_geographic(params: &HashMap<String, String>) -> Result<CrsDef> {
     validate_supported_proj_geographic_semantics(params)?;
     let d = resolve_datum(params)?;
     Ok(CrsDef::Geographic(GeographicCrsDef::new(0, d, "")))
+}
+
+fn parse_geocentric(params: &HashMap<String, String>) -> Result<CrsDef> {
+    validate_supported_proj_params(
+        params,
+        &[],
+        LINEAR_UNIT_PARAMS,
+        "PROJ geocentric CRS definition",
+    )?;
+    validate_supported_proj_geocentric_semantics(params)?;
+    let d = resolve_datum(params)?;
+    Ok(CrsDef::Geocentric(GeocentricCrsDef::new(0, 0, d, "")))
 }
 
 fn parse_utm(params: &HashMap<String, String>) -> Result<CrsDef> {
@@ -823,6 +836,43 @@ fn validate_supported_proj_geographic_semantics(params: &HashMap<String, String>
     Ok(())
 }
 
+fn validate_supported_proj_geocentric_semantics(params: &HashMap<String, String>) -> Result<()> {
+    validate_supported_proj_common_semantics(params, "PROJ geocentric CRS definition")?;
+
+    // ECEF is always X/Y/Z; reject ENU-style +axis that geographic CRS allow.
+    if let Some(axis) = params.get("axis") {
+        let normalized_axis = normalize_key(axis);
+        if !normalized_axis.is_empty() {
+            return Err(ParseError::UnsupportedSemantics(format!(
+                "PROJ geocentric CRS definition uses unsupported axis order `{axis}`"
+            )));
+        }
+    }
+
+    if let Some(units) = params.get("units") {
+        let normalized_units = normalize_key(units);
+        if !matches!(
+            normalized_units.as_str(),
+            "m" | "meter" | "metre" | "meters" | "metres"
+        ) {
+            return Err(ParseError::UnsupportedSemantics(format!(
+                "PROJ geocentric CRS definition uses linear units other than metres (`{units}`)"
+            )));
+        }
+    }
+
+    if let Some(to_meter) = params.get("to_meter") {
+        let factor = parse_f64_param("to_meter", to_meter)?;
+        if (factor - 1.0).abs() > 1e-12 {
+            return Err(ParseError::UnsupportedSemantics(format!(
+                "PROJ geocentric CRS definition uses linear units other than metres (+to_meter={to_meter})"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_supported_proj_common_semantics(
     params: &HashMap<String, String>,
     context: &str,
@@ -901,6 +951,42 @@ mod tests {
     fn parse_longlat_wgs84() {
         let crs = parse_proj_string("+proj=longlat +datum=WGS84 +no_defs").unwrap();
         assert!(crs.is_geographic());
+    }
+
+    #[test]
+    fn parse_cart_wgs84() {
+        let crs = parse_proj_string("+proj=cart +datum=WGS84 +type=crs").unwrap();
+        assert!(crs.is_geocentric());
+        assert_eq!(crs.as_geocentric().unwrap().epsg(), 0);
+    }
+
+    #[test]
+    fn parse_geocent_alias() {
+        let crs = parse_proj_string("+proj=geocent +ellps=WGS84 +units=m +no_defs").unwrap();
+        assert!(crs.is_geocentric());
+    }
+
+    #[test]
+    fn roundtrip_proj_string_cart() {
+        let from = parse_proj_string("+proj=longlat +datum=WGS84 +no_defs").unwrap();
+        let to = parse_proj_string("+proj=cart +datum=WGS84 +type=crs").unwrap();
+        let t = proj_core::Transform::from_crs_defs(&from, &to).unwrap();
+        let (x, y, z) = t.convert_3d((-74.006, 40.7128, 10.0)).unwrap();
+        assert!((x - 1_334_000.544_686_07).abs() < 1e-4, "x = {x}");
+        assert!((y - -4_654_052.129_206_82).abs() < 1e-4, "y = {y}");
+        assert!((z - 4_138_306.761_372_84).abs() < 1e-4, "z = {z}");
+    }
+
+    #[test]
+    fn reject_cart_non_metre_units() {
+        let err = parse_proj_string("+proj=cart +datum=WGS84 +units=us-ft").unwrap_err();
+        assert!(err.to_string().contains("linear units other than metres"));
+    }
+
+    #[test]
+    fn reject_cart_axis_order() {
+        let err = parse_proj_string("+proj=cart +datum=WGS84 +axis=enu").unwrap_err();
+        assert!(err.to_string().contains("unsupported axis order"));
     }
 
     #[test]

@@ -11,6 +11,9 @@ pub(crate) enum AxisDirection {
     South,
     Up,
     Down,
+    GeocentricX,
+    GeocentricY,
+    GeocentricZ,
     Other,
 }
 
@@ -29,6 +32,9 @@ impl AxisDirection {
             "south" => Self::South,
             "up" => Self::Up,
             "down" => Self::Down,
+            "geocentricx" => Self::GeocentricX,
+            "geocentricy" => Self::GeocentricY,
+            "geocentricz" => Self::GeocentricZ,
             _ => Self::Other,
         }
     }
@@ -41,6 +47,9 @@ impl AxisDirection {
             Self::South => "south",
             Self::Up => "up",
             Self::Down => "down",
+            Self::GeocentricX => "geocentricX",
+            Self::GeocentricY => "geocentricY",
+            Self::GeocentricZ => "geocentricZ",
             Self::Other => "other",
         }
     }
@@ -161,6 +170,71 @@ pub(crate) fn validate_supported_projected_semantics(
         &[AxisDirection::East, AxisDirection::North],
         "easting/east, northing/north",
         axis_order_policy,
+    )
+}
+
+/// Returns true for an explicit `CS[Cartesian,3]` declaration.
+///
+/// Used to dispatch `GEODCRS` / `GeodeticCRS` between the geographic (ellipsoidal)
+/// and geocentric parse paths. Axis-direction checks belong in
+/// [`validate_supported_geocentric_semantics`], not here.
+pub(crate) fn is_cartesian_3d_coordinate_system(
+    coordinate_system: &CoordinateSystemSpec,
+) -> bool {
+    coordinate_system
+        .subtype
+        .as_deref()
+        .is_some_and(|subtype| normalize_key(subtype) == "cartesian")
+        && coordinate_system.dimension == Some(3)
+}
+
+pub(crate) fn validate_supported_geocentric_semantics(
+    context: &str,
+    prime_meridian_degrees: Option<f64>,
+    linear_unit: Option<LinearUnit>,
+    coordinate_system: &CoordinateSystemSpec,
+) -> Result<()> {
+    if let Some(prime_meridian_degrees) = prime_meridian_degrees {
+        if !approx_eq(prime_meridian_degrees, 0.0) {
+            return Err(ParseError::UnsupportedSemantics(format!(
+                "{context} uses a non-Greenwich prime meridian"
+            )));
+        }
+    }
+
+    if let Some(linear_unit) = linear_unit {
+        if !approx_eq(linear_unit.meters_per_unit(), 1.0) {
+            return Err(ParseError::UnsupportedSemantics(format!(
+                "{context} uses linear units other than metres"
+            )));
+        }
+    }
+
+    // WKT2/PROJJSON use geocentricX/Y/Z; WKT1 GEOCCS from GDAL/PROJ uses
+    // OTHER/OTHER/NORTH for the same ECEF frame.
+    const WKT2_AXES: &[AxisDirection] = &[
+        AxisDirection::GeocentricX,
+        AxisDirection::GeocentricY,
+        AxisDirection::GeocentricZ,
+    ];
+    const WKT1_AXES: &[AxisDirection] = &[
+        AxisDirection::Other,
+        AxisDirection::Other,
+        AxisDirection::North,
+    ];
+    let expected_axes = if coordinate_system.axes == WKT1_AXES {
+        WKT1_AXES
+    } else {
+        WKT2_AXES
+    };
+
+    validate_coordinate_system(
+        context,
+        coordinate_system,
+        Some("cartesian"),
+        expected_axes,
+        "geocentricX, geocentricY, geocentricZ",
+        AxisOrderPolicy::Strict,
     )
 }
 
