@@ -3,8 +3,9 @@ use std::collections::HashMap;
 
 use crate::semantics::{
     angle_unit_name_to_degree, approx_eq, linear_unit_from_meters_per_unit, linear_unit_name,
-    normalize_key, projection_parameter_unit_kind, radians_to_degrees_factor, resolve_named_datum,
-    resolve_structured_datum_or_custom,
+    is_cartesian_3d_coordinate_system, normalize_key, projection_parameter_unit_kind,
+    radians_to_degrees_factor, resolve_named_datum, resolve_structured_datum_or_custom,
+    validate_supported_geocentric_semantics,
     validate_supported_geographic_or_ellipsoidal_height_semantics,
     validate_supported_geographic_semantics, validate_supported_projected_semantics,
     validate_supported_vertical_coordinate_system, validate_vertical_unit_matches_authority,
@@ -13,8 +14,8 @@ use crate::semantics::{
 };
 use crate::{ParseError, Result};
 use proj_core::{
-    CompoundCrsDef, CrsDef, GeographicCrsDef, HorizontalCrsDef, LinearUnit, ProjectedCrsDef,
-    ProjectionMethod, VerticalCrsDef,
+    CompoundCrsDef, CrsDef, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef, LinearUnit,
+    ProjectedCrsDef, ProjectionMethod, VerticalCrsDef,
 };
 
 pub(crate) fn parse_projjson(s: &str) -> Result<CrsDef> {
@@ -42,7 +43,15 @@ pub(crate) fn parse_projjson(s: &str) -> Result<CrsDef> {
         .ok_or_else(|| ParseError::Parse("PROJJSON object is missing a CRS type".into()))?;
 
     let parsed = match crs_type {
-        "GeographicCRS" | "GeodeticCRS" => parse_geographic_projjson(&value)?,
+        "GeographicCRS" => parse_geographic_projjson(&value)?,
+        "GeodeticCRS" => {
+            let coordinate_system = coordinate_system_from_json(&value);
+            if is_cartesian_3d_coordinate_system(&coordinate_system) {
+                parse_geocentric_projjson(&value)?
+            } else {
+                parse_geographic_projjson(&value)?
+            }
+        }
         "ProjectedCRS" => parse_projected_projjson(&value)?,
         "CompoundCRS" => parse_compound_projjson(&value)?,
         "VerticalCRS" => {
@@ -93,6 +102,19 @@ fn parse_geographic_projjson(value: &Value) -> Result<CrsDef> {
             ))))
         }
     }
+}
+
+fn parse_geocentric_projjson(value: &Value) -> Result<CrsDef> {
+    let coordinate_system = coordinate_system_from_json(value);
+    let linear_unit = projected_linear_unit(value)?;
+    validate_supported_geocentric_semantics(
+        "PROJJSON geocentric CRS",
+        prime_meridian_degrees_from_json(value),
+        linear_unit,
+        &coordinate_system,
+    )?;
+    let datum = infer_datum_from_json_crs(value)?;
+    Ok(CrsDef::Geocentric(GeocentricCrsDef::new(0, 0, datum, "")))
 }
 
 fn parse_projected_projjson(value: &Value) -> Result<CrsDef> {
@@ -583,7 +605,8 @@ fn is_semantically_neutral_authority_wrapper(value: &Value) -> bool {
 
 fn validate_wrapper_type_matches_registry(declared_type: &str, registry: &CrsDef) -> Result<()> {
     let type_matches = match declared_type {
-        "GeographicCRS" | "GeodeticCRS" => registry.is_geographic(),
+        "GeographicCRS" => registry.is_geographic(),
+        "GeodeticCRS" => registry.is_geographic() || registry.is_geocentric(),
         "ProjectedCRS" => registry.is_projected(),
         _ => false,
     };
@@ -1502,6 +1525,66 @@ mod tests {
         assert!(err.to_string().contains(
             "PROJJSON conversion parameter `Longitude of natural origin` is missing value"
         ));
+    }
+
+    #[test]
+    fn parse_geocentric_projjson_without_id() {
+        let crs = parse_projjson(
+            r#"{
+                "type": "GeodeticCRS",
+                "name": "custom",
+                "datum": {
+                    "type": "GeodeticReferenceFrame",
+                    "name": "World Geodetic System 1984",
+                    "ellipsoid": {
+                        "name": "WGS 84",
+                        "semi_major_axis": 6378137,
+                        "inverse_flattening": 298.257223563
+                    }
+                },
+                "coordinate_system": {
+                    "subtype": "Cartesian",
+                    "axis": [
+                        { "name": "Geocentric X", "direction": "geocentricX", "unit": "metre" },
+                        { "name": "Geocentric Y", "direction": "geocentricY", "unit": "metre" },
+                        { "name": "Geocentric Z", "direction": "geocentricZ", "unit": "metre" }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+        assert!(crs.is_geocentric());
+        assert_eq!(crs.epsg(), 0);
+    }
+
+    #[test]
+    fn rejects_geocentric_projjson_with_non_metre_unit() {
+        let err = parse_projjson(
+            r#"{
+                "type": "GeodeticCRS",
+                "name": "custom",
+                "datum": {
+                    "type": "GeodeticReferenceFrame",
+                    "name": "World Geodetic System 1984",
+                    "ellipsoid": {
+                        "name": "WGS 84",
+                        "semi_major_axis": 6378137,
+                        "inverse_flattening": 298.257223563
+                    }
+                },
+                "coordinate_system": {
+                    "subtype": "Cartesian",
+                    "axis": [
+                        { "name": "Geocentric X", "direction": "geocentricX", "unit": "foot" },
+                        { "name": "Geocentric Y", "direction": "geocentricY", "unit": "foot" },
+                        { "name": "Geocentric Z", "direction": "geocentricZ", "unit": "foot" }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap_err();
+        assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
+        assert!(err.to_string().contains("linear units other than metres"));
     }
 
     #[test]

@@ -40,6 +40,33 @@ fn wgs84_geographic_3d_to_ecef_roundtrip() {
 }
 
 #[test]
+fn convert_2d_rejects_geocentric_endpoints() {
+    let to_ecef = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
+    let err = to_ecef.convert((-74.006, 40.7128)).unwrap_err();
+    assert!(
+        err.to_string().contains("require convert_3d"),
+        "got {err}"
+    );
+
+    let from_ecef = Transform::new("EPSG:4978", "EPSG:4326").unwrap();
+    let err = from_ecef
+        .convert((NYC_ECEF_XYZ.0, NYC_ECEF_XYZ.1))
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("require convert_3d"),
+        "got {err}"
+    );
+
+    let err = to_ecef
+        .convert_with_diagnostics((-74.006, 40.7128))
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("require convert_3d"),
+        "got {err}"
+    );
+}
+
+#[test]
 fn tuple3d_wgs84_to_web_mercator() {
     let t = Transform::new("EPSG:4326", "EPSG:3857").unwrap();
     let (x, y, z) = t.convert_3d((-74.0445, 40.6892, 15.5)).unwrap();

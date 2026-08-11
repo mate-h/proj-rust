@@ -8,17 +8,19 @@
 //! # Supported formats
 //!
 //! - **Authority codes**: `"EPSG:4326"` — delegates to proj-core's registry
-//! - **PROJ strings**: `"+proj=utm +zone=18 +datum=WGS84"` — parsed into CrsDef
-//! - **WKT1**: `GEOGCS[...]` / `PROJCS[...]` / `COMPD_CS[...]` — extracts an
-//!   AUTHORITY tag when present, otherwise parses projection parameters
+//! - **PROJ strings**: `"+proj=utm +zone=18 +datum=WGS84"`, `"+proj=cart +datum=WGS84"` —
+//!   parsed into CrsDef
+//! - **WKT1**: `GEOGCS[...]` / `PROJCS[...]` / `GEOCCS[...]` / `COMPD_CS[...]` —
+//!   extracts an AUTHORITY tag when present, otherwise parses projection parameters
 //! - **WKT1/WKT2/PROJJSON compound CRS**: parses explicit vertical CRS components for
 //!   equality-checked z preservation and same-reference vertical unit conversion
 //! - **WKT output**: serializes [`proj_core::CrsDef`] values to WKT1-style
-//!   `GEOGCS[...]`, `PROJCS[...]`, and `COMPD_CS[...]` definitions
+//!   `GEOGCS[...]`, `PROJCS[...]`, `GEOCCS[...]`, and `COMPD_CS[...]` definitions
 //!
 //! Custom CRS definitions are only accepted when their semantics fit the
 //! `proj_core::CrsDef` model: longitude/latitude geographic coordinates in
-//! degrees with a Greenwich prime meridian, projected coordinates with
+//! degrees with a Greenwich prime meridian, geocentric ECEF coordinates in
+//! metres with geocentric X/Y/Z axes, projected coordinates with
 //! easting/northing axis order, and compound vertical components that can be
 //! preserved or unit-converted only when source and target vertical CRS
 //! definitions use the same vertical reference frame.
@@ -96,15 +98,16 @@ impl ParsedCrs {
 /// - **Bare EPSG codes**: `"4326"` (numeric-only strings)
 /// - **URN format**: `"urn:ogc:def:crs:EPSG::4326"`
 /// - **OGC CRS84**: `"CRS:84"`, `"OGC:CRS84"`
-/// - **PROJ strings**: `"+proj=utm +zone=18 +datum=WGS84"`
-/// - **PROJJSON**: `{"type": "ProjectedCRS", ...}`
-/// - **WKT1**: `GEOGCS[...]` / `PROJCS[...]` / `COMPD_CS[...]`
-/// - **WKT2**: `GEODCRS[...]` / `PROJCRS[...]` / `COMPOUNDCRS[...]`
+/// - **PROJ strings**: `"+proj=utm +zone=18 +datum=WGS84"`, `"+proj=cart +datum=WGS84"`
+/// - **PROJJSON**: `{"type": "ProjectedCRS", ...}` / geocentric `GeodeticCRS`
+/// - **WKT1**: `GEOGCS[...]` / `PROJCS[...]` / `GEOCCS[...]` / `COMPD_CS[...]`
+/// - **WKT2**: `GEODCRS[...]` / `GEOGCRS[...]` / `PROJCRS[...]` / `COMPOUNDCRS[...]`
 pub fn parse_crs(s: &str) -> Result<CrsDef> {
     Ok(parse_crs_definition(s)?.crs)
 }
 
-/// Serialize a CRS definition as WKT1-style `GEOGCS`, `PROJCS`, or `COMPD_CS`.
+/// Serialize a CRS definition as WKT1-style `GEOGCS`, `PROJCS`, `GEOCCS`, or
+/// `COMPD_CS`.
 ///
 /// Projection false easting/northing parameters are emitted in the CRS native
 /// linear unit, while the `proj_core::ProjectionMethod` model stores them in
@@ -113,8 +116,8 @@ pub fn to_wkt(crs: &CrsDef) -> Result<String> {
     wkt_writer::to_wkt(crs)
 }
 
-/// Serialize a CRS definition as WKT2 (ISO 19162) `GEOGCRS`, `PROJCRS`, or
-/// `COMPOUNDCRS`.
+/// Serialize a CRS definition as WKT2 (ISO 19162) `GEOGCRS`, geocentric
+/// `GEODCRS`, `PROJCRS`, or `COMPOUNDCRS`.
 ///
 /// Projection false easting/northing parameters are emitted in the CRS native
 /// linear unit, while the `proj_core::ProjectionMethod` model stores them in
@@ -153,6 +156,8 @@ fn parse_crs_definition(s: &str) -> Result<ParsedCrs> {
     if s.contains(':')
         && !s.starts_with('+')
         && !upper.starts_with("GEOG")
+        && !upper.starts_with("GEOD")
+        && !upper.starts_with("GEOC")
         && !upper.starts_with("PROJ")
     {
         if let Ok(crs) = proj_core::lookup_authority_code(s) {
@@ -180,6 +185,7 @@ fn parse_crs_definition(s: &str) -> Result<ParsedCrs> {
     // WKT
     if upper.starts_with("GEOGCS")
         || upper.starts_with("PROJCS")
+        || upper.starts_with("GEOCCS")
         || upper.starts_with("GEODCRS")
         || upper.starts_with("GEOGCRS")
         || upper.starts_with("PROJCRS")

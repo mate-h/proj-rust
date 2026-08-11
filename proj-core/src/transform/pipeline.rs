@@ -243,6 +243,8 @@ pub(super) fn execute_pipeline_xy(
     pipeline: &CompiledOperationPipeline,
     c: Coord3D,
 ) -> Result<Coord> {
+    require_xy_pipeline_supported(pipeline)?;
+
     let mut state = pipeline.source_xy_units.normalize(c)?;
     if pipeline.steps.is_empty() {
         let output = Coord::new(c.x, c.y);
@@ -257,6 +259,22 @@ pub(super) fn execute_pipeline_xy(
     let output = pipeline.target_xy_units.denormalize(state);
     validate_pipeline_coord("pipeline final output", output)?;
     Ok(output)
+}
+
+fn require_xy_pipeline_supported(pipeline: &CompiledOperationPipeline) -> Result<()> {
+    if matches!(
+        pipeline.source_xy_units,
+        PipelineSourceXyUnits::GeocentricMeters
+    ) || matches!(
+        pipeline.target_xy_units,
+        PipelineTargetXyUnits::GeocentricMeters
+    ) {
+        return Err(Error::InvalidDefinition(
+            "geocentric (ECEF) transforms require convert_3d; the 2D convert API cannot represent Z"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Like [`execute_pipeline_xy`] but keeps the pipeline's `z` output, so
