@@ -1,5 +1,44 @@
 use proj_core::{Coord3D, Transform};
 
+/// WGS 84 geodetic (lon/lat/h) → ECEF checkpoint for NYC from C PROJ /
+/// GeographicLib cartography on the WGS 84 ellipsoid.
+const NYC_LON_LAT_H: (f64, f64, f64) = (-74.006, 40.7128, 10.0);
+const NYC_ECEF_XYZ: (f64, f64, f64) = (
+    1_334_000.544_686_07,
+    -4_654_052.129_206_82,
+    4_138_306.761_372_84,
+);
+
+#[test]
+fn wgs84_geographic_to_ecef_checkpoint() {
+    let t = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
+    let (x, y, z) = t.convert_3d(NYC_LON_LAT_H).unwrap();
+
+    assert!((x - NYC_ECEF_XYZ.0).abs() < 1e-4, "x = {x}");
+    assert!((y - NYC_ECEF_XYZ.1).abs() < 1e-4, "y = {y}");
+    assert!((z - NYC_ECEF_XYZ.2).abs() < 1e-4, "z = {z}");
+
+    let inv = t.inverse().unwrap();
+    let (lon, lat, h) = inv.convert_3d((x, y, z)).unwrap();
+    assert!((lon - NYC_LON_LAT_H.0).abs() < 1e-10);
+    assert!((lat - NYC_LON_LAT_H.1).abs() < 1e-10);
+    assert!((h - NYC_LON_LAT_H.2).abs() < 1e-6);
+}
+
+#[test]
+fn wgs84_geographic_3d_to_ecef_roundtrip() {
+    let t = Transform::new("EPSG:4979", "EPSG:4978").unwrap();
+    let ecef = t.convert_3d(NYC_LON_LAT_H).unwrap();
+    assert!((ecef.0 - NYC_ECEF_XYZ.0).abs() < 1e-4);
+    assert!((ecef.1 - NYC_ECEF_XYZ.1).abs() < 1e-4);
+    assert!((ecef.2 - NYC_ECEF_XYZ.2).abs() < 1e-4);
+
+    let back = t.inverse().unwrap().convert_3d(ecef).unwrap();
+    assert!((back.0 - NYC_LON_LAT_H.0).abs() < 1e-10);
+    assert!((back.1 - NYC_LON_LAT_H.1).abs() < 1e-10);
+    assert!((back.2 - NYC_LON_LAT_H.2).abs() < 1e-6);
+}
+
 #[test]
 fn tuple3d_wgs84_to_web_mercator() {
     let t = Transform::new("EPSG:4326", "EPSG:3857").unwrap();

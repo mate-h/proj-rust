@@ -23,6 +23,9 @@ pub(crate) fn to_wkt2(crs: &CrsDef) -> Result<String> {
         CrsDef::Geographic(geographic) => geographic_wkt2(geographic, None, None, None),
         CrsDef::Projected(projected) => projected_wkt2(projected),
         CrsDef::Compound(compound) => compound_wkt2(compound),
+        CrsDef::Geocentric(_) => Err(ParseError::UnsupportedSemantics(
+            "geocentric CRS WKT2 serialization is not supported".into(),
+        )),
     }
 }
 

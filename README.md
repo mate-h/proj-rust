@@ -69,6 +69,7 @@ Custom definitions are accepted only when they map to this library's CRS model: 
 | CRS or projection | EPSG examples |
 |---|---|
 | Geographic CRS and datum identity | EPSG:4326, EPSG:4269, EPSG:4267, EPSG:4258 |
+| Geocentric / ECEF | EPSG:4978 |
 | 3D geographic and compatible compound CRS | EPSG:4979 |
 | Generated vertical CRS metadata and same-reference unit conversion | EPSG:3855, EPSG:5702, EPSG:5703, EPSG:5773, EPSG:6360, EPSG:5709, and other supported EPSG vertical CRS records |
 | Grid-based 3D compound (with `geotiff`) | EPSG:7415 (RD New + NAP, RDNAPTRANS2018) |
@@ -92,6 +93,8 @@ Custom definitions are accepted only when they map to this library's CRS model: 
 `Transform::new()` and `Transform::from_crs_defs()` select the best supported operation for a CRS pair. Use `Transform::with_selection_options()` or `Transform::from_crs_defs_with_selection_options()` to set an area of interest, require grid-backed operations, require exact area matches, provide a `GridProvider`, select an explicit registry operation, or provide explicit custom horizontal `CoordinateOperation` candidates.
 
 Operation selection candidates come only from the embedded registry, deterministic generated-registry records, explicit caller/parser-provided coordinate operations, and internal identity/no-datum-operation behavior. Selection does not synthesize Helmert, grid, or WGS84-compatible identity operations from datum metadata. CRS pairs without a registry/generated-registry operation, explicit operation, or identity path fail during transform construction.
+
+Same-ellipsoid geodetic ↔ geocentric pairs (for example `EPSG:4326`/`EPSG:4979` ↔ `EPSG:4978`) use that identity path plus geocentric framing steps, analogous to how projected CRS pairs wrap projection forward/inverse around the selected operation. Use `convert_3d` for ECEF coordinates; geographic inputs remain longitude/latitude in degrees with ellipsoidal height in metres.
 
 ## Grids
 

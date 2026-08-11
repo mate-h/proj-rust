@@ -24,6 +24,11 @@ pub(crate) fn to_projjson_value(crs: &CrsDef) -> Result<Value> {
         CrsDef::Geographic(geographic) => geographic_crs_value(geographic, None)?,
         CrsDef::Projected(projected) => projected_crs_value(projected)?,
         CrsDef::Compound(compound) => compound_crs_value(compound)?,
+        CrsDef::Geocentric(_) => {
+            return Err(ParseError::UnsupportedSemantics(
+                "geocentric CRS PROJJSON serialization is not supported".into(),
+            ));
+        }
     };
     let object = crs_object_mut(&mut value)?;
     let mut with_schema = Map::new();

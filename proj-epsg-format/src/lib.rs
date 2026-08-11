@@ -8,7 +8,7 @@
 //! (`scripts/check-registry-generation.sh`) prove writer and reader agree.
 //!
 //! The container is little-endian throughout: a fixed header (magic, version,
-//! ten section counts) followed by packed variable-length records per
+//! twelve section counts) followed by packed variable-length records per
 //! section. Strings are `u16` length-prefixed UTF-8.
 
 #![forbid(unsafe_code)]
@@ -16,16 +16,18 @@
 /// `"EPSG"` in big-endian byte order.
 pub const MAGIC: u32 = 0x4550_5347;
 /// Container format version; bump on any layout or semantic change.
-pub const VERSION: u16 = 10;
-/// Fixed header: magic (4) + version (2) + reserved (2) + eleven `u32`
+pub const VERSION: u16 = 11;
+/// Fixed header: magic (4) + version (2) + reserved (2) + twelve `u32`
 /// section counts.
-pub const HEADER_SIZE: usize = 52;
+pub const HEADER_SIZE: usize = 56;
 
 // Fixed-size record prefixes. "Base" sizes exclude the trailing
 // length-prefixed strings.
 pub const ELLIPSOID_RECORD_SIZE: usize = 20;
 pub const DATUM_RECORD_SIZE: usize = 12;
 pub const GEO_CRS_RECORD_BASE_SIZE: usize = 8;
+/// Geocentric CRS: code, datum code, base geographic CRS code.
+pub const GEOCENTRIC_CRS_RECORD_BASE_SIZE: usize = 12;
 pub const PROJ_CRS_RECORD_BASE_SIZE: usize = 80;
 pub const VERTICAL_CRS_RECORD_BASE_SIZE: usize = 16;
 pub const COMPOUND_CRS_RECORD_BASE_SIZE: usize = 28;
