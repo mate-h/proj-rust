@@ -306,12 +306,11 @@ pub(super) fn compile_vertical_transform(
             vertical_label(target_vertical)
         ))),
         (Some(source_vertical), None)
-            if target.is_geocentric()
-                && source_vertical.kind().is_ellipsoidal_height()
-                && source.datum().same_datum(target.datum()) =>
+            if target.is_geocentric() && source_vertical.kind().is_ellipsoidal_height() =>
         {
-            // Ellipsoidal height is consumed by geodetic→ECEF framing on the
-            // same geodetic datum; no separate vertical operation is required.
+            // Ellipsoidal height is consumed by geodetic↔ECEF framing (and any
+            // intervening Helmert/geocentric-affine steps). No separate vertical
+            // operation is required; gravity-related heights remain rejected.
             Ok(VerticalTransform::None {
                 diagnostics: vertical_diagnostics(
                     VerticalTransformAction::None,
@@ -322,9 +321,7 @@ pub(super) fn compile_vertical_transform(
             })
         }
         (None, Some(target_vertical))
-            if source.is_geocentric()
-                && target_vertical.kind().is_ellipsoidal_height()
-                && source.datum().same_datum(target.datum()) =>
+            if source.is_geocentric() && target_vertical.kind().is_ellipsoidal_height() =>
         {
             Ok(VerticalTransform::None {
                 diagnostics: vertical_diagnostics(

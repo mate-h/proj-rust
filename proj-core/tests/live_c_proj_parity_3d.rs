@@ -15,7 +15,7 @@ struct ReferencePoint3D {
     description: &'static str,
 }
 
-fn cases() -> [ReferencePoint3D; 6] {
+fn cases() -> [ReferencePoint3D; 10] {
     [
         ReferencePoint3D {
             from_epsg: 4326,
@@ -68,6 +68,42 @@ fn cases() -> [ReferencePoint3D; 6] {
             tolerance_xy: 1e-6,
             tolerance_z: 0.05,
             description: "British National Grid 3D to WGS84",
+        },
+        ReferencePoint3D {
+            from_epsg: 4326,
+            to_epsg: 4978,
+            input: (-74.006, 40.7128, 10.0),
+            tolerance_xy: 1e-4,
+            tolerance_z: 1e-4,
+            description: "NYC WGS84 geographic to ECEF",
+        },
+        ReferencePoint3D {
+            from_epsg: 4979,
+            to_epsg: 4978,
+            input: (-74.006, 40.7128, 10.0),
+            tolerance_xy: 1e-4,
+            tolerance_z: 1e-4,
+            description: "NYC WGS84 3D to ECEF",
+        },
+        ReferencePoint3D {
+            from_epsg: 4978,
+            to_epsg: 4326,
+            input: (
+                1_334_000.544_686_07,
+                -4_654_052.129_206_82,
+                4_138_306.761_372_84,
+            ),
+            tolerance_xy: 1e-9,
+            tolerance_z: 1e-6,
+            description: "NYC ECEF to WGS84 geographic",
+        },
+        ReferencePoint3D {
+            from_epsg: 32618,
+            to_epsg: 4978,
+            input: (583960.311_157_47, 4_507_523.066_994_61, 10.0),
+            tolerance_xy: 1e-3,
+            tolerance_z: 1e-3,
+            description: "NYC UTM zone 18N to ECEF",
         },
     ]
 }

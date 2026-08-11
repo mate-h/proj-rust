@@ -95,7 +95,7 @@ Custom definitions are accepted only when they map to this library's CRS model: 
 
 Operation selection candidates come only from the embedded registry, deterministic generated-registry records, explicit caller/parser-provided coordinate operations, and internal identity/no-datum-operation behavior. Selection does not synthesize Helmert, grid, or WGS84-compatible identity operations from datum metadata. CRS pairs without a registry/generated-registry operation, explicit operation, or identity path fail during transform construction.
 
-Same-ellipsoid geodetic ↔ geocentric pairs (for example `EPSG:4326`/`EPSG:4979` ↔ `EPSG:4978`) use that identity path plus geocentric framing steps, analogous to how projected CRS pairs wrap projection forward/inverse around the selected operation. Use `convert_3d` for ECEF coordinates — the 2D `convert` API rejects geocentric endpoints instead of returning X/Y only. Geographic inputs remain longitude/latitude in degrees with ellipsoidal height in metres.
+Geodetic ↔ geocentric pairs (for example `EPSG:4326`/`EPSG:4979` ↔ `EPSG:4978`, including cross-datum ellipsoidal-height compounds such as `EPSG:4937` → `EPSG:4978`) use the selected horizontal operation plus geocentric framing steps, analogous to how projected CRS pairs wrap projection forward/inverse around the selected operation. Gravity-related heights cannot target ECEF directly. Use `convert_3d` for ECEF coordinates — the 2D `convert` API rejects geocentric endpoints instead of returning X/Y only. Geographic inputs remain longitude/latitude in degrees with ellipsoidal height in metres.
 
 ## Grids
 
