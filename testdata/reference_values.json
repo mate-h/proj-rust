@@ -2226,5 +2226,57 @@
     "tolerance": 0.01,
     "tolerance_z": 0.01,
     "description": "London 3D WGS84→British National Grid"
+  },
+  {
+    "from_epsg": 4326,
+    "to_epsg": 4978,
+    "input_x": -74.006,
+    "input_y": 40.7128,
+    "input_z": 10.0,
+    "expected_x": 1334000.5446860685,
+    "expected_y": -4654052.129206824,
+    "expected_z": 4138306.7613728405,
+    "tolerance": 0.0001,
+    "tolerance_z": 0.0001,
+    "description": "NYC 3D WGS84→ECEF"
+  },
+  {
+    "from_epsg": 4979,
+    "to_epsg": 4978,
+    "input_x": -74.006,
+    "input_y": 40.7128,
+    "input_z": 10.0,
+    "expected_x": 1334000.5446860685,
+    "expected_y": -4654052.129206824,
+    "expected_z": 4138306.7613728405,
+    "tolerance": 0.0001,
+    "tolerance_z": 0.0001,
+    "description": "NYC 3D WGS84 geographic 3D→ECEF"
+  },
+  {
+    "from_epsg": 4978,
+    "to_epsg": 4326,
+    "input_x": 1334000.54468607,
+    "input_y": -4654052.12920682,
+    "input_z": 4138306.76137284,
+    "expected_x": -74.00599999999997,
+    "expected_y": 40.71280000000002,
+    "expected_z": 9.999999997206032,
+    "tolerance": 1e-9,
+    "tolerance_z": 1e-6,
+    "description": "NYC 3D ECEF→WGS84"
+  },
+  {
+    "from_epsg": 32618,
+    "to_epsg": 4978,
+    "input_x": 583960.31115747,
+    "input_y": 4507523.06699461,
+    "input_z": 10.0,
+    "expected_x": 1333972.3886694517,
+    "expected_y": -4653943.421315068,
+    "expected_z": 4138437.210674404,
+    "tolerance": 0.001,
+    "tolerance_z": 0.001,
+    "description": "NYC 3D UTM 18N→ECEF"
   }
 ]

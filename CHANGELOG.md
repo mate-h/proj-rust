@@ -7,6 +7,8 @@
 - add WKT1 `GEOCCS`, WKT2 geocentric `GEODCRS`, and PROJJSON Cartesian `GeodeticCRS` serialize/parse support for geocentric CRS definitions
 - accept `+proj=cart` / `+proj=geocent` PROJ strings as metre ECEF CRS definitions (same-datum geodetic ↔ ECEF via `convert_3d`)
 - make 2D `Transform::convert` reject geocentric (ECEF) endpoints so callers must use `convert_3d` instead of silently dropping Z
+- allow ellipsoidal-height compound CRS ↔ geocentric transforms across datums (for example `EPSG:4937` → `EPSG:4978`); gravity-related heights remain rejected
+- add C PROJ live/corpus ECEF reference cases for `EPSG:4978`, geocentric fuzz seeds, and cancel redundant geodetic↔ECEF framing around Helmert sandwiches
 
 ## 0.11.0 - 2026-08-10
 
