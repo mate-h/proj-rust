@@ -19,13 +19,13 @@
 //! operation catalog, selection metadata, and NTv2 grid-provider interfaces.
 //! Without vertical CRS components, `convert_3d` treats `z` as ellipsoidal
 //! height: datum shifts change it exactly as C PROJ's 3D-promoted CRS pairs
-//! do, and same-datum transforms preserve it. When source and target compound
-//! CRS definitions have identical vertical components the gravity-related `z`
-//! is preserved, and it is unit-converted when both vertical components use
-//! the same vertical reference frame with different linear units. Registry-backed GTX
-//! geoid operations can be selected for supported ellipsoidal-to-gravity height
-//! CRS pairs, while grid files still resolve through caller-supplied grid
-//! providers.
+//! do, and same-datum transforms preserve it. When source
+//! and target compound CRS definitions have identical vertical components the
+//! gravity-related `z` is preserved, and it is unit-converted when both vertical
+//! components use the same vertical reference frame with different linear units.
+//! Registry-backed GTX geoid operations can be selected for supported
+//! ellipsoidal-to-gravity height CRS pairs, while grid files still resolve
+//! through caller-supplied grid providers.
 //! A strict transform constructor rejects a compound-to-horizontal-only CRS
 //! pair because it cannot safely infer what to do with the explicit vertical
 //! ordinate. Use [`Transform::new_horizontal`] or
@@ -75,8 +75,8 @@ pub use coord::{
     Bounds, Coord, Coord3D, Transformable, Transformable3D, MAX_BOUNDS_DENSIFY_POINTS,
 };
 pub use crs::{
-    CompoundCrsDef, CrsDef, GeographicCrsDef, HorizontalCrsDef, LinearUnit, ProjectedCrsDef,
-    ProjectionMethod, VerticalCrsDef, VerticalCrsKind,
+    CompoundCrsDef, CrsDef, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef, LinearUnit,
+    ProjectedCrsDef, ProjectionMethod, VerticalCrsDef, VerticalCrsKind,
 };
 pub use datum::{Datum, DatumGridShift, DatumGridShiftEntry, DatumToWgs84, HelmertParams};
 pub use ellipsoid::Ellipsoid;

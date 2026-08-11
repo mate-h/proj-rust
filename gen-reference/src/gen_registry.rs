@@ -136,21 +136,22 @@ fn walkdir(dir: &Path, name: &str) -> Vec<PathBuf> {
 use proj_epsg_format::{
     COMPOUND_CRS_RECORD_BASE_SIZE, DATUM_RECORD_SIZE, DATUM_SHIFT_IDENTITY, DATUM_SHIFT_UNKNOWN,
     ELLIPSOID_RECORD_SIZE, FLAG_APPROXIMATE, FLAG_DEPRECATED, FLAG_PREFERRED, FLAG_SUPERSEDED,
-    GEO_CRS_RECORD_BASE_SIZE, GRID_FORMAT_GEOTIFF, GRID_FORMAT_GTX, GRID_FORMAT_NTV2,
-    GRID_INTERPOLATION_BILINEAR, HORIZONTAL_CRS_GEOGRAPHIC, HORIZONTAL_CRS_PROJECTED, MAGIC,
-    METHOD_ALBERS, METHOD_AMERICAN_POLYCONIC, METHOD_AZIMUTHAL_EQUIDISTANT, METHOD_CASSINI_SOLDNER,
-    METHOD_COLOMBIA_URBAN, METHOD_EQUAL_EARTH, METHOD_EQUIDISTANT_CYL, METHOD_GUAM,
-    METHOD_HOTINE_OBLIQUE_MERCATOR_A, METHOD_HOTINE_OBLIQUE_MERCATOR_B,
-    METHOD_KROVAK_MODIFIED_NORTH_ORIENTATED, METHOD_KROVAK_NORTH_ORIENTATED, METHOD_LABORDE,
-    METHOD_LAEA, METHOD_LAEA_SPHERICAL, METHOD_LCC, METHOD_LCC_1SP_VARIANT_B, METHOD_LCC_MICHIGAN,
-    METHOD_MERCATOR, METHOD_OBLIQUE_STEREO, METHOD_POLAR_STEREO, METHOD_POLAR_STEREO_VARIANT_C,
-    METHOD_TRANSVERSE_MERCATOR, METHOD_WEB_MERCATOR, OP_CONCATENATED, OP_GEOCENTRIC_AFFINE,
-    OP_GRID_SHIFT, OP_HELMERT, PROJ_CRS_RECORD_BASE_SIZE, VERSION, VERTICAL_COMPONENT_ELLIPSOIDAL,
+    GEOCENTRIC_CRS_RECORD_BASE_SIZE, GEO_CRS_RECORD_BASE_SIZE, GRID_FORMAT_GEOTIFF,
+    GRID_FORMAT_GTX, GRID_FORMAT_NTV2, GRID_INTERPOLATION_BILINEAR, HORIZONTAL_CRS_GEOGRAPHIC,
+    HORIZONTAL_CRS_PROJECTED, MAGIC, METHOD_ALBERS, METHOD_AMERICAN_POLYCONIC,
+    METHOD_AZIMUTHAL_EQUIDISTANT, METHOD_CASSINI_SOLDNER, METHOD_COLOMBIA_URBAN, METHOD_EQUAL_EARTH,
+    METHOD_EQUIDISTANT_CYL, METHOD_GUAM, METHOD_HOTINE_OBLIQUE_MERCATOR_A,
+    METHOD_HOTINE_OBLIQUE_MERCATOR_B, METHOD_KROVAK_MODIFIED_NORTH_ORIENTATED,
+    METHOD_KROVAK_NORTH_ORIENTATED, METHOD_LABORDE, METHOD_LAEA, METHOD_LAEA_SPHERICAL, METHOD_LCC,
+    METHOD_LCC_1SP_VARIANT_B, METHOD_LCC_MICHIGAN, METHOD_MERCATOR, METHOD_OBLIQUE_STEREO,
+    METHOD_POLAR_STEREO, METHOD_POLAR_STEREO_VARIANT_C, METHOD_TRANSVERSE_MERCATOR,
+    METHOD_WEB_MERCATOR, OP_CONCATENATED, OP_GEOCENTRIC_AFFINE, OP_GRID_SHIFT, OP_HELMERT,
+    PROJ_CRS_RECORD_BASE_SIZE, VERSION, VERTICAL_COMPONENT_ELLIPSOIDAL,
     VERTICAL_COMPONENT_REGISTRY_CRS, VERTICAL_CRS_RECORD_BASE_SIZE,
     VERTICAL_OFFSET_GEOID_HEIGHT_METERS,
 };
 
-const PROVENANCE_SCHEMA_VERSION: u16 = 5;
+const PROVENANCE_SCHEMA_VERSION: u16 = 6;
 const CANONICAL_NAN_BITS: u64 = 0x7ff8_0000_0000_0000;
 const CANONICAL_FLOAT_DECIMAL_PLACES: usize = 13;
 
@@ -222,6 +223,7 @@ struct RegistryCounts {
     operations: usize,
     vertical_operations: usize,
     datum_aliases: usize,
+    geocentric_crs: usize,
 }
 
 const LAT_ORIGIN: i64 = 8801;
@@ -266,6 +268,13 @@ struct DatumInfo {
 struct GeoCrs {
     code: u32,
     datum_code: u32,
+    name: String,
+}
+
+struct GeocentricCrs {
+    code: u32,
+    datum_code: u32,
+    base_geographic_crs_code: u32,
     name: String,
 }
 
@@ -2430,10 +2439,44 @@ fn main() {
         }
     }
 
+    let geocentric_crs: Vec<GeocentricCrs> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT code, datum_code, name
+                 FROM geodetic_crs
+                 WHERE auth_name='EPSG' AND type='geocentric' AND deprecated=0
+                 ORDER BY CAST(code AS INTEGER)",
+            )
+            .unwrap();
+        stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                row.get::<_, u32>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .unwrap()
+        .flatten()
+        .filter_map(|(code, datum_code, name)| {
+            let base_geographic_crs_code = geo_2d_by_datum.get(&datum_code).copied()?;
+            if !geo_codes.contains(&base_geographic_crs_code) {
+                return None;
+            }
+            Some(GeocentricCrs {
+                code,
+                datum_code,
+                base_geographic_crs_code,
+                name,
+            })
+        })
+        .collect()
+    };
+
     let used_datum_codes: BTreeSet<u32> = geo_crs
         .iter()
         .map(|crs| crs.datum_code)
         .chain(proj_crs.iter().map(|crs| crs.datum_code))
+        .chain(geocentric_crs.iter().map(|crs| crs.datum_code))
         .collect();
     let used_ellipsoid_codes: BTreeSet<u32> = used_datum_codes
         .iter()
@@ -3071,6 +3114,7 @@ fn main() {
     eprintln!("Ellipsoids: {}", used_ellipsoids.len());
     eprintln!("Datums: {}", used_datums.len());
     eprintln!("Geographic CRS: {}", geo_crs.len());
+    eprintln!("Geocentric CRS: {}", geocentric_crs.len());
     eprintln!("Projected CRS: {}", proj_crs.len());
     eprintln!("Vertical CRS: {}", vertical_crs.len());
     eprintln!("Compound CRS: {}", compound_crs.len());
@@ -3099,6 +3143,7 @@ fn main() {
         operations: operations.len(),
         vertical_operations: vertical_operations.len(),
         datum_aliases: datum_aliases.len(),
+        geocentric_crs: geocentric_crs.len(),
     };
 
     let mut buf = Vec::<u8>::new();
@@ -3116,6 +3161,7 @@ fn main() {
     buf.extend_from_slice(&(operations.len() as u32).to_le_bytes());
     buf.extend_from_slice(&(vertical_operations.len() as u32).to_le_bytes());
     buf.extend_from_slice(&(datum_aliases.len() as u32).to_le_bytes());
+    buf.extend_from_slice(&(geocentric_crs.len() as u32).to_le_bytes());
 
     for (code, a, inv_f) in &used_ellipsoids {
         let mut rec = [0u8; ELLIPSOID_RECORD_SIZE];
@@ -3300,6 +3346,15 @@ fn main() {
     for (code, alias) in &datum_aliases {
         buf.extend_from_slice(&code.to_le_bytes());
         write_string_u16(&mut buf, alias);
+    }
+
+    for crs in &geocentric_crs {
+        let mut rec = [0u8; GEOCENTRIC_CRS_RECORD_BASE_SIZE];
+        rec[0..4].copy_from_slice(&crs.code.to_le_bytes());
+        rec[4..8].copy_from_slice(&crs.datum_code.to_le_bytes());
+        rec[8..12].copy_from_slice(&crs.base_geographic_crs_code.to_le_bytes());
+        buf.extend_from_slice(&rec);
+        write_string_u16(&mut buf, &crs.name);
     }
 
     let bin_sha256 = sha256_hex(&buf);

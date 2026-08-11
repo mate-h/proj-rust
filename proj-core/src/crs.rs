@@ -80,6 +80,8 @@ impl LinearUnit {
 pub enum CrsDef {
     /// Geographic CRS (lon/lat in degrees).
     Geographic(GeographicCrsDef),
+    /// Geocentric CRS (ECEF X/Y/Z in metres).
+    Geocentric(GeocentricCrsDef),
     /// Projected CRS (easting/northing in the CRS's native linear unit).
     Projected(ProjectedCrsDef),
     /// Compound horizontal + vertical CRS.
@@ -91,6 +93,7 @@ impl CrsDef {
     pub fn datum(&self) -> &Datum {
         match self {
             CrsDef::Geographic(g) => g.datum(),
+            CrsDef::Geocentric(g) => g.datum(),
             CrsDef::Projected(p) => p.datum(),
             CrsDef::Compound(c) => c.horizontal_datum(),
         }
@@ -100,6 +103,7 @@ impl CrsDef {
     pub fn epsg(&self) -> u32 {
         match self {
             CrsDef::Geographic(g) => g.epsg(),
+            CrsDef::Geocentric(g) => g.epsg(),
             CrsDef::Projected(p) => p.epsg(),
             CrsDef::Compound(c) => c.epsg(),
         }
@@ -109,6 +113,7 @@ impl CrsDef {
     pub fn name(&self) -> &str {
         match self {
             CrsDef::Geographic(g) => g.name(),
+            CrsDef::Geocentric(g) => g.name(),
             CrsDef::Projected(p) => p.name(),
             CrsDef::Compound(c) => c.name(),
         }
@@ -117,6 +122,11 @@ impl CrsDef {
     /// Returns true if this CRS's horizontal component is geographic.
     pub fn is_geographic(&self) -> bool {
         self.as_geographic().is_some()
+    }
+
+    /// Returns true if this is a geocentric (ECEF) CRS.
+    pub fn is_geocentric(&self) -> bool {
+        self.as_geocentric().is_some()
     }
 
     /// Returns true if this CRS's horizontal component is projected.
@@ -133,15 +143,23 @@ impl CrsDef {
     pub fn as_geographic(&self) -> Option<&GeographicCrsDef> {
         match self {
             CrsDef::Geographic(g) => Some(g),
-            CrsDef::Projected(_) => None,
+            CrsDef::Geocentric(_) | CrsDef::Projected(_) => None,
             CrsDef::Compound(c) => c.as_geographic(),
+        }
+    }
+
+    /// Return the geocentric CRS definition, when present.
+    pub fn as_geocentric(&self) -> Option<&GeocentricCrsDef> {
+        match self {
+            CrsDef::Geocentric(g) => Some(g),
+            CrsDef::Geographic(_) | CrsDef::Projected(_) | CrsDef::Compound(_) => None,
         }
     }
 
     /// Return the projected horizontal component, when present.
     pub fn as_projected(&self) -> Option<&ProjectedCrsDef> {
         match self {
-            CrsDef::Geographic(_) => None,
+            CrsDef::Geographic(_) | CrsDef::Geocentric(_) => None,
             CrsDef::Projected(p) => Some(p),
             CrsDef::Compound(c) => c.as_projected(),
         }
@@ -151,7 +169,7 @@ impl CrsDef {
     pub fn vertical_crs(&self) -> Option<&VerticalCrsDef> {
         match self {
             CrsDef::Compound(c) => Some(c.vertical_crs()),
-            CrsDef::Geographic(_) | CrsDef::Projected(_) => None,
+            CrsDef::Geographic(_) | CrsDef::Geocentric(_) | CrsDef::Projected(_) => None,
         }
     }
 
@@ -160,9 +178,13 @@ impl CrsDef {
     /// This intentionally drops an explicit vertical component. Use it only for
     /// horizontal-only workflows such as AOI filtering, footprint reprojection,
     /// and 2D previews where `z` is outside the operation contract.
+    /// Geocentric CRS definitions are returned unchanged: they are inherently
+    /// three-dimensional and have no separate vertical component to drop.
     pub fn horizontal_crs(&self) -> Option<CrsDef> {
         match self {
-            CrsDef::Geographic(_) | CrsDef::Projected(_) => Some(self.clone()),
+            CrsDef::Geographic(_) | CrsDef::Geocentric(_) | CrsDef::Projected(_) => {
+                Some(self.clone())
+            }
             CrsDef::Compound(c) => Some(c.horizontal().to_crs_def()),
         }
     }
@@ -171,6 +193,9 @@ impl CrsDef {
     pub fn base_geographic_crs_epsg(&self) -> Option<u32> {
         match self {
             CrsDef::Geographic(g) if g.epsg() != 0 => Some(g.epsg()),
+            CrsDef::Geocentric(g) if g.base_geographic_crs_epsg() != 0 => {
+                Some(g.base_geographic_crs_epsg())
+            }
             CrsDef::Projected(p) if p.base_geographic_crs_epsg() != 0 => {
                 Some(p.base_geographic_crs_epsg())
             }
@@ -183,6 +208,7 @@ impl CrsDef {
     pub fn semantically_equivalent(&self, other: &Self) -> bool {
         match (self, other) {
             (CrsDef::Geographic(a), CrsDef::Geographic(b)) => a.datum().same_datum(b.datum()),
+            (CrsDef::Geocentric(a), CrsDef::Geocentric(b)) => a.datum().same_datum(b.datum()),
             (CrsDef::Projected(a), CrsDef::Projected(b)) => {
                 a.datum().same_datum(b.datum())
                     && approx_eq(a.linear_unit_to_meter(), b.linear_unit_to_meter())
@@ -209,6 +235,47 @@ impl GeographicCrsDef {
 
     pub const fn epsg(&self) -> u32 {
         self.epsg
+    }
+
+    pub const fn datum(&self) -> &Datum {
+        &self.datum
+    }
+
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+}
+
+/// Definition of a geocentric CRS (ECEF X, Y, Z in metres).
+#[derive(Debug, Clone)]
+pub struct GeocentricCrsDef {
+    epsg: u32,
+    base_geographic_crs_epsg: u32,
+    datum: Datum,
+    name: &'static str,
+}
+
+impl GeocentricCrsDef {
+    pub const fn new(
+        epsg: u32,
+        base_geographic_crs_epsg: u32,
+        datum: Datum,
+        name: &'static str,
+    ) -> Self {
+        Self {
+            epsg,
+            base_geographic_crs_epsg,
+            datum,
+            name,
+        }
+    }
+
+    pub const fn epsg(&self) -> u32 {
+        self.epsg
+    }
+
+    pub const fn base_geographic_crs_epsg(&self) -> u32 {
+        self.base_geographic_crs_epsg
     }
 
     pub const fn datum(&self) -> &Datum {
@@ -441,6 +508,9 @@ impl TryFrom<CrsDef> for HorizontalCrsDef {
         match value {
             CrsDef::Geographic(g) => Ok(Self::Geographic(g)),
             CrsDef::Projected(p) => Ok(Self::Projected(p)),
+            CrsDef::Geocentric(_) => Err(Error::InvalidDefinition(
+                "geocentric CRS cannot be used as a compound horizontal component".into(),
+            )),
             CrsDef::Compound(_) => Err(Error::InvalidDefinition(
                 "compound CRS horizontal component cannot itself be compound".into(),
             )),
@@ -1344,6 +1414,21 @@ mod tests {
         assert!(crs.is_geographic());
         assert!(!crs.is_projected());
         assert_eq!(crs.epsg(), 4326);
+    }
+
+    #[test]
+    fn geocentric_crs_is_geocentric() {
+        let crs = CrsDef::Geocentric(GeocentricCrsDef::new(
+            4978,
+            4326,
+            datum::WGS84,
+            "WGS 84",
+        ));
+        assert!(crs.is_geocentric());
+        assert!(!crs.is_geographic());
+        assert!(!crs.is_projected());
+        assert_eq!(crs.epsg(), 4978);
+        assert_eq!(crs.base_geographic_crs_epsg(), Some(4326));
     }
 
     #[test]

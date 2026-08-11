@@ -41,6 +41,7 @@ pub(super) struct CompiledOperationFallback {
 #[derive(Clone, Copy)]
 pub(super) enum PipelineSourceXyUnits {
     GeographicDegrees,
+    GeocentricMeters,
     ProjectedMeters,
     ProjectedNativeToMeters(LinearUnit),
 }
@@ -48,12 +49,16 @@ pub(super) enum PipelineSourceXyUnits {
 #[derive(Clone, Copy)]
 pub(super) enum PipelineTargetXyUnits {
     GeographicDegrees,
+    GeocentricMeters,
     ProjectedMeters,
     ProjectedMetersToNative(LinearUnit),
 }
 
 impl PipelineSourceXyUnits {
     fn compile(source: &CrsDef) -> Self {
+        if source.is_geocentric() {
+            return Self::GeocentricMeters;
+        }
         match source.as_projected() {
             Some(projected) if projected.linear_unit_to_meter() == 1.0 => Self::ProjectedMeters,
             Some(projected) => Self::ProjectedNativeToMeters(projected.linear_unit()),
@@ -68,6 +73,10 @@ impl PipelineSourceXyUnits {
                 let lat = coord.y.to_radians();
                 validate_lon_lat(lon, lat)?;
                 Ok(Coord3D::new(lon, lat, coord.z))
+            }
+            Self::GeocentricMeters => {
+                validate_pipeline_coord3d("geocentric input coordinate", coord)?;
+                Ok(coord)
             }
             Self::ProjectedMeters => {
                 validate_projected(coord.x, coord.y)?;
@@ -86,6 +95,9 @@ impl PipelineSourceXyUnits {
 
 impl PipelineTargetXyUnits {
     fn compile(target: &CrsDef) -> Self {
+        if target.is_geocentric() {
+            return Self::GeocentricMeters;
+        }
         match target.as_projected() {
             Some(projected) if projected.linear_unit_to_meter() == 1.0 => Self::ProjectedMeters,
             Some(projected) => Self::ProjectedMetersToNative(projected.linear_unit()),
@@ -96,7 +108,7 @@ impl PipelineTargetXyUnits {
     fn denormalize(self, coord: Coord3D) -> Coord {
         match self {
             Self::GeographicDegrees => Coord::new(coord.x.to_degrees(), coord.y.to_degrees()),
-            Self::ProjectedMeters => Coord::new(coord.x, coord.y),
+            Self::GeocentricMeters | Self::ProjectedMeters => Coord::new(coord.x, coord.y),
             Self::ProjectedMetersToNative(unit) => {
                 Coord::new(unit.from_meters(coord.x), unit.from_meters(coord.y))
             }
@@ -308,6 +320,12 @@ pub(super) fn compile_pipeline(
         steps.push(CompiledStep::ProjectionInverse {
             projection: make_projection(&projected.method(), projected.datum())?,
         });
+    } else if let Some(geocentric) = source.as_geocentric() {
+        // Frame geocentric endpoints into geodetic radians like projections
+        // frame projected metres into geodetic radians.
+        steps.push(CompiledStep::GeocentricToGeodetic {
+            ellipsoid: geocentric.datum().ellipsoid(),
+        });
     }
 
     match operation {
@@ -332,7 +350,11 @@ pub(super) fn compile_pipeline(
         }
     }
 
-    if let Some(projected) = target.as_projected() {
+    if let Some(geocentric) = target.as_geocentric() {
+        steps.push(CompiledStep::GeodeticToGeocentric {
+            ellipsoid: geocentric.datum().ellipsoid(),
+        });
+    } else if let Some(projected) = target.as_projected() {
         steps.push(CompiledStep::ProjectionForward {
             projection: make_projection(&projected.method(), projected.datum())?,
         });

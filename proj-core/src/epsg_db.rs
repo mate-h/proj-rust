@@ -21,11 +21,12 @@ pub(crate) const PROVENANCE_JSON: &str = include_str!("../data/epsg.provenance.j
 use proj_epsg_format::{
     COMPOUND_CRS_RECORD_BASE_SIZE, DATUM_RECORD_SIZE, DATUM_SHIFT_IDENTITY, DATUM_SHIFT_UNKNOWN,
     ELLIPSOID_RECORD_SIZE, FLAG_APPROXIMATE, FLAG_DEPRECATED, FLAG_PREFERRED, FLAG_SUPERSEDED,
-    GEO_CRS_RECORD_BASE_SIZE, GRID_FORMAT_GEOTIFF, GRID_FORMAT_GTX, GRID_FORMAT_NTV2,
-    GRID_INTERPOLATION_BILINEAR, HEADER_SIZE, HORIZONTAL_CRS_GEOGRAPHIC, HORIZONTAL_CRS_PROJECTED,
-    MAGIC, METHOD_ALBERS, METHOD_AMERICAN_POLYCONIC, METHOD_AZIMUTHAL_EQUIDISTANT,
-    METHOD_CASSINI_SOLDNER, METHOD_COLOMBIA_URBAN, METHOD_EQUAL_EARTH, METHOD_EQUIDISTANT_CYL,
-    METHOD_GUAM, METHOD_HOTINE_OBLIQUE_MERCATOR_A, METHOD_HOTINE_OBLIQUE_MERCATOR_B,
+    GEOCENTRIC_CRS_RECORD_BASE_SIZE, GEO_CRS_RECORD_BASE_SIZE, GRID_FORMAT_GEOTIFF,
+    GRID_FORMAT_GTX, GRID_FORMAT_NTV2, GRID_INTERPOLATION_BILINEAR, HEADER_SIZE,
+    HORIZONTAL_CRS_GEOGRAPHIC, HORIZONTAL_CRS_PROJECTED, MAGIC, METHOD_ALBERS,
+    METHOD_AMERICAN_POLYCONIC, METHOD_AZIMUTHAL_EQUIDISTANT, METHOD_CASSINI_SOLDNER,
+    METHOD_COLOMBIA_URBAN, METHOD_EQUAL_EARTH, METHOD_EQUIDISTANT_CYL, METHOD_GUAM,
+    METHOD_HOTINE_OBLIQUE_MERCATOR_A, METHOD_HOTINE_OBLIQUE_MERCATOR_B,
     METHOD_KROVAK_MODIFIED_NORTH_ORIENTATED, METHOD_KROVAK_NORTH_ORIENTATED, METHOD_LABORDE,
     METHOD_LAEA, METHOD_LAEA_SPHERICAL, METHOD_LCC, METHOD_LCC_1SP_VARIANT_B, METHOD_LCC_MICHIGAN,
     METHOD_MERCATOR, METHOD_OBLIQUE_STEREO, METHOD_POLAR_STEREO, METHOD_POLAR_STEREO_VARIANT_C,
@@ -38,6 +39,13 @@ use proj_epsg_format::{
 #[derive(Clone)]
 struct GeographicRecord {
     datum_code: u32,
+    name: &'static str,
+}
+
+#[derive(Clone)]
+struct GeocentricRecord {
+    datum_code: u32,
+    base_geographic_crs_epsg: u32,
     name: &'static str,
 }
 
@@ -75,6 +83,7 @@ struct RegistryDb {
     datum_ellipsoid_codes: BTreeMap<u32, u32>,
     datum_codes_by_alias: BTreeMap<String, u32>,
     geographic_crs: BTreeMap<u32, GeographicRecord>,
+    geocentric_crs: BTreeMap<u32, GeocentricRecord>,
     projected_crs: BTreeMap<u32, ProjectedRecord>,
     vertical_crs: BTreeMap<u32, VerticalRecord>,
     compound_crs: BTreeMap<u32, CompoundRecord>,
@@ -118,6 +127,7 @@ fn parse_db() -> RegistryDb {
     let num_operations = read_u32(EPSG_DATA, 40) as usize;
     let num_vertical_operations = read_u32(EPSG_DATA, 44) as usize;
     let num_datum_aliases = read_u32(EPSG_DATA, 48) as usize;
+    let num_geocentric = read_u32(EPSG_DATA, 52) as usize;
 
     let mut offset = HEADER_SIZE;
 
@@ -537,6 +547,25 @@ fn parse_db() -> RegistryDb {
         datum_codes_by_alias.insert(normalize_datum_alias(alias), code);
         offset += 6 + alias_len;
     }
+
+    let mut geocentric_crs = BTreeMap::new();
+    for _ in 0..num_geocentric {
+        let code = read_u32(EPSG_DATA, offset);
+        let datum_code = read_u32(EPSG_DATA, offset + 4);
+        let base_geographic_crs_epsg = read_u32(EPSG_DATA, offset + 8);
+        let name_len = read_u16(EPSG_DATA, offset + GEOCENTRIC_CRS_RECORD_BASE_SIZE) as usize;
+        let name =
+            read_static_string(EPSG_DATA, offset + GEOCENTRIC_CRS_RECORD_BASE_SIZE + 2, name_len);
+        geocentric_crs.insert(
+            code,
+            GeocentricRecord {
+                datum_code,
+                base_geographic_crs_epsg,
+                name,
+            },
+        );
+        offset += GEOCENTRIC_CRS_RECORD_BASE_SIZE + 2 + name_len;
+    }
     let _ = offset;
 
     RegistryDb {
@@ -544,6 +573,7 @@ fn parse_db() -> RegistryDb {
         datum_ellipsoid_codes,
         datum_codes_by_alias,
         geographic_crs,
+        geocentric_crs,
         projected_crs,
         vertical_crs,
         compound_crs,
@@ -794,6 +824,17 @@ pub(crate) fn lookup_geographic(code: u32) -> Option<CrsDef> {
     )))
 }
 
+pub(crate) fn lookup_geocentric(code: u32) -> Option<CrsDef> {
+    let record = db().geocentric_crs.get(&code)?;
+    let datum = db().datums.get(&record.datum_code)?;
+    Some(CrsDef::Geocentric(GeocentricCrsDef::new(
+        code,
+        record.base_geographic_crs_epsg,
+        datum.clone(),
+        record.name,
+    )))
+}
+
 pub(crate) fn lookup_projected(code: u32) -> Option<CrsDef> {
     let record = db().projected_crs.get(&code)?;
     let datum = db().datums.get(&record.datum_code)?;
@@ -863,6 +904,7 @@ fn lookup_compound(code: u32) -> Option<CrsDef> {
 
 pub(crate) fn lookup(code: u32) -> Option<CrsDef> {
     lookup_geographic(code)
+        .or_else(|| lookup_geocentric(code))
         .or_else(|| lookup_projected(code))
         .or_else(|| lookup_compound(code))
 }
@@ -871,6 +913,11 @@ pub(crate) fn lookup_datum_code_for_crs(code: u32) -> Option<u32> {
     db().geographic_crs
         .get(&code)
         .map(|record| record.datum_code)
+        .or_else(|| {
+            db().geocentric_crs
+                .get(&code)
+                .map(|record| record.datum_code)
+        })
         .or_else(|| {
             db().projected_crs
                 .get(&code)

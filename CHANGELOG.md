@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- breaking: add `CrsDef::Geocentric` / `GeocentricCrsDef` and bump the embedded registry format to v11 with a geocentric CRS section; exhaustive matches on `CrsDef` must handle the new variant
+- expose WGS 84 ECEF (`EPSG:4978`) and other same-ellipsoid geocentric CRS records from the generated registry, with geodetic ↔ ECEF transforms via `Transform::new` / `convert_3d`
+
 ## 0.11.0 - 2026-08-10
 
 - breaking: add `OperationMethod::GeocentricAffine` and `GeocentricAffineParams` for exact full-matrix transformations, and bump the embedded registry format to v10; exhaustive matches on `OperationMethod` must handle the new variant
