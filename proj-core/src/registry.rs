@@ -370,7 +370,8 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("sha256:"));
-        assert_eq!(value["output"]["byte_len"], 1_102_477);
+        assert_eq!(value["output"]["byte_len"], 1_298_021);
+        assert_eq!(value["counts"]["extents"], 3137);
         assert_eq!(value["counts"]["vertical_crs"], 293);
         assert_eq!(value["counts"]["compound_crs"], 684);
         assert_eq!(value["counts"]["geocentric_crs"], 217);

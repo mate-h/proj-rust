@@ -268,6 +268,7 @@ struct DatumInfo {
 struct GeoCrs {
     code: u32,
     datum_code: u32,
+    area_code: u32,
     name: String,
 }
 
@@ -275,6 +276,7 @@ struct GeocentricCrs {
     code: u32,
     datum_code: u32,
     base_geographic_crs_code: u32,
+    area_code: u32,
     name: String,
 }
 
@@ -285,6 +287,7 @@ struct ProjCrs {
     method_id: u8,
     linear_unit_to_meter: f64,
     params: [f64; 7],
+    area_code: u32,
     name: String,
 }
 
@@ -292,6 +295,7 @@ struct VerticalCrs {
     code: u32,
     datum_code: u32,
     linear_unit_to_meter: f64,
+    area_code: u32,
     name: String,
 }
 
@@ -303,6 +307,7 @@ struct CompoundCrs {
     vertical_crs_code: u32,
     vertical_datum_code: u32,
     vertical_unit_to_meter: f64,
+    area_code: u32,
     name: String,
     vertical_name: String,
 }
@@ -716,6 +721,12 @@ fn get_scale(cp: &ConvParams, codes: &[i64]) -> f64 {
 
 fn parse_u32_code(text: &str) -> Option<u32> {
     text.trim().parse::<u32>().ok()
+}
+
+fn assign_first_area(slot: &mut u32, extent_code: u32) {
+    if *slot == 0 {
+        *slot = extent_code;
+    }
 }
 
 fn encode_params(
@@ -2137,7 +2148,7 @@ fn main() {
         }
     }
 
-    let geo_crs: Vec<GeoCrs> = {
+    let mut geo_crs: Vec<GeoCrs> = {
         let mut stmt = conn
             .prepare(
                 "SELECT code, datum_code, name
@@ -2150,6 +2161,7 @@ fn main() {
             Ok(GeoCrs {
                 code: row.get(0)?,
                 datum_code: row.get(1)?,
+                area_code: 0,
                 name: row.get(2)?,
             })
         })
@@ -2275,6 +2287,7 @@ fn main() {
                 method_id,
                 linear_unit_to_meter,
                 params,
+                area_code: 0,
                 name,
             });
         }
@@ -2282,7 +2295,7 @@ fn main() {
 
     let proj_codes: BTreeSet<u32> = proj_crs.iter().map(|crs| crs.code).collect();
 
-    let vertical_crs: Vec<VerticalCrs> = {
+    let mut vertical_crs: Vec<VerticalCrs> = {
         let mut stmt = conn
             .prepare(
                 "SELECT vc.code,
@@ -2310,6 +2323,7 @@ fn main() {
                 datum_code: row.get(1)?,
                 name: row.get(2)?,
                 linear_unit_to_meter: row.get(3)?,
+                area_code: 0,
             })
         })
         .unwrap()
@@ -2372,6 +2386,7 @@ fn main() {
                 vertical_crs_code: 0,
                 vertical_datum_code: row.2,
                 vertical_unit_to_meter: linear_unit_to_meter,
+                area_code: 0,
                 name: row.1.clone(),
                 vertical_name: format!("{} ellipsoidal height", row.1),
             });
@@ -2433,13 +2448,14 @@ fn main() {
                 vertical_crs_code,
                 vertical_datum_code: 0,
                 vertical_unit_to_meter: 0.0,
+                area_code: 0,
                 name: row.1,
                 vertical_name: String::new(),
             });
         }
     }
 
-    let geocentric_crs: Vec<GeocentricCrs> = {
+    let mut geocentric_crs: Vec<GeocentricCrs> = {
         let mut stmt = conn
             .prepare(
                 "SELECT code, datum_code, name
@@ -2466,6 +2482,7 @@ fn main() {
                 code,
                 datum_code,
                 base_geographic_crs_code,
+                area_code: 0,
                 name,
             })
         })
@@ -2986,6 +3003,31 @@ fn main() {
         .enumerate()
         .map(|(index, operation)| ((operation.table_name, operation.code), index))
         .collect();
+    let geo_lookup: BTreeMap<u32, usize> = geo_crs
+        .iter()
+        .enumerate()
+        .map(|(index, crs)| (crs.code, index))
+        .collect();
+    let proj_lookup: BTreeMap<u32, usize> = proj_crs
+        .iter()
+        .enumerate()
+        .map(|(index, crs)| (crs.code, index))
+        .collect();
+    let geocentric_lookup: BTreeMap<u32, usize> = geocentric_crs
+        .iter()
+        .enumerate()
+        .map(|(index, crs)| (crs.code, index))
+        .collect();
+    let compound_lookup: BTreeMap<u32, usize> = compound_crs
+        .iter()
+        .enumerate()
+        .map(|(index, crs)| (crs.code, index))
+        .collect();
+    let vertical_lookup: BTreeMap<u32, usize> = vertical_crs
+        .iter()
+        .enumerate()
+        .map(|(index, crs)| (crs.code, index))
+        .collect();
     {
         let mut stmt = conn
             .prepare(
@@ -3002,7 +3044,15 @@ fn main() {
                    ON extent.auth_name = usage.extent_auth_name
                   AND extent.code = usage.extent_code
                  WHERE object_auth_name='EPSG'
-                   AND object_table_name IN ('grid_transformation','helmert_transformation','concatenated_operation')
+                   AND object_table_name IN (
+                        'grid_transformation',
+                        'helmert_transformation',
+                        'concatenated_operation',
+                        'geodetic_crs',
+                        'projected_crs',
+                        'compound_crs',
+                        'vertical_crs'
+                   )
                  ORDER BY object_table_name,
                           CAST(object_code AS INTEGER),
                           CAST(extent.code AS INTEGER)",
@@ -3024,7 +3074,7 @@ fn main() {
             .unwrap()
             .flatten()
         {
-            let Some(operation_code) = parse_u32_code(&row.1) else {
+            let Some(object_code) = parse_u32_code(&row.1) else {
                 continue;
             };
             let Some(extent_code) = parse_u32_code(&row.2) else {
@@ -3032,13 +3082,48 @@ fn main() {
             };
             let table_name = row.0.as_str();
             let mut used = false;
-            if let Some(&index) = operation_lookup.get(&(table_name, operation_code)) {
+            if let Some(&index) = operation_lookup.get(&(table_name, object_code)) {
                 operations[index].area_codes.push(extent_code);
                 used = true;
             }
-            if let Some(&index) = vertical_operation_lookup.get(&(table_name, operation_code)) {
+            if let Some(&index) = vertical_operation_lookup.get(&(table_name, object_code)) {
                 vertical_operations[index].area_codes.push(extent_code);
                 used = true;
+            }
+            match table_name {
+                "geodetic_crs" => {
+                    if let Some(&index) = geo_lookup.get(&object_code) {
+                        assign_first_area(&mut geo_crs[index].area_code, extent_code);
+                        used = true;
+                    }
+                    if let Some(&index) = geocentric_lookup.get(&object_code) {
+                        assign_first_area(&mut geocentric_crs[index].area_code, extent_code);
+                        used = true;
+                    }
+                    if let Some(&index) = compound_lookup.get(&object_code) {
+                        assign_first_area(&mut compound_crs[index].area_code, extent_code);
+                        used = true;
+                    }
+                }
+                "projected_crs" => {
+                    if let Some(&index) = proj_lookup.get(&object_code) {
+                        assign_first_area(&mut proj_crs[index].area_code, extent_code);
+                        used = true;
+                    }
+                }
+                "compound_crs" => {
+                    if let Some(&index) = compound_lookup.get(&object_code) {
+                        assign_first_area(&mut compound_crs[index].area_code, extent_code);
+                        used = true;
+                    }
+                }
+                "vertical_crs" => {
+                    if let Some(&index) = vertical_lookup.get(&object_code) {
+                        assign_first_area(&mut vertical_crs[index].area_code, extent_code);
+                        used = true;
+                    }
+                }
+                _ => {}
             }
             if !used {
                 continue;
@@ -3189,6 +3274,7 @@ fn main() {
         let mut rec = [0u8; GEO_CRS_RECORD_BASE_SIZE];
         rec[0..4].copy_from_slice(&crs.code.to_le_bytes());
         rec[4..8].copy_from_slice(&crs.datum_code.to_le_bytes());
+        rec[8..12].copy_from_slice(&crs.area_code.to_le_bytes());
         buf.extend_from_slice(&rec);
         write_string_u16(&mut buf, &crs.name);
     }
@@ -3204,6 +3290,7 @@ fn main() {
             let offset = 24 + index * 8;
             rec[offset..offset + 8].copy_from_slice(&canonical_f64(*value).to_le_bytes());
         }
+        rec[80..84].copy_from_slice(&crs.area_code.to_le_bytes());
         buf.extend_from_slice(&rec);
         write_string_u16(&mut buf, &crs.name);
     }
@@ -3213,6 +3300,7 @@ fn main() {
         rec[0..4].copy_from_slice(&crs.code.to_le_bytes());
         rec[4..8].copy_from_slice(&crs.datum_code.to_le_bytes());
         rec[8..16].copy_from_slice(&canonical_f64(crs.linear_unit_to_meter).to_le_bytes());
+        rec[16..20].copy_from_slice(&crs.area_code.to_le_bytes());
         buf.extend_from_slice(&rec);
         write_string_u16(&mut buf, &crs.name);
     }
@@ -3226,6 +3314,7 @@ fn main() {
         rec[12..16].copy_from_slice(&crs.vertical_crs_code.to_le_bytes());
         rec[16..20].copy_from_slice(&crs.vertical_datum_code.to_le_bytes());
         rec[20..28].copy_from_slice(&canonical_f64(crs.vertical_unit_to_meter).to_le_bytes());
+        rec[28..32].copy_from_slice(&crs.area_code.to_le_bytes());
         buf.extend_from_slice(&rec);
         write_string_u16(&mut buf, &crs.name);
         write_string_u16(&mut buf, &crs.vertical_name);
@@ -3353,6 +3442,7 @@ fn main() {
         rec[0..4].copy_from_slice(&crs.code.to_le_bytes());
         rec[4..8].copy_from_slice(&crs.datum_code.to_le_bytes());
         rec[8..12].copy_from_slice(&crs.base_geographic_crs_code.to_le_bytes());
+        rec[12..16].copy_from_slice(&crs.area_code.to_le_bytes());
         buf.extend_from_slice(&rec);
         write_string_u16(&mut buf, &crs.name);
     }

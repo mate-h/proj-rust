@@ -60,8 +60,7 @@ fn check_point(r: &ReferencePoint) -> Result<(), String> {
         Some(crs) if crs.is_geocentric() => SelectionOptions::default(),
         _ => SelectionOptions {
             area_of_interest: Some(AreaOfInterest::source_crs_point(Coord::new(
-                r.input_x,
-                r.input_y,
+                r.input_x, r.input_y,
             ))),
             ..SelectionOptions::default()
         },

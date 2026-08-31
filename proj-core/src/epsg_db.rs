@@ -39,6 +39,7 @@ use proj_epsg_format::{
 #[derive(Clone)]
 struct GeographicRecord {
     datum_code: u32,
+    area_code: u32,
     name: &'static str,
 }
 
@@ -46,6 +47,7 @@ struct GeographicRecord {
 struct GeocentricRecord {
     datum_code: u32,
     base_geographic_crs_epsg: u32,
+    area_code: u32,
     name: &'static str,
 }
 
@@ -55,6 +57,7 @@ struct ProjectedRecord {
     datum_code: u32,
     method: ProjectionMethod,
     linear_unit: LinearUnit,
+    area_code: u32,
     name: &'static str,
 }
 
@@ -62,6 +65,7 @@ struct ProjectedRecord {
 struct VerticalRecord {
     datum_code: u32,
     linear_unit: LinearUnit,
+    area_code: u32,
     name: &'static str,
 }
 
@@ -73,6 +77,7 @@ struct CompoundRecord {
     vertical_crs_epsg: u32,
     vertical_datum_epsg: u32,
     vertical_unit: LinearUnit,
+    area_code: u32,
     name: &'static str,
     vertical_name: &'static str,
 }
@@ -92,6 +97,7 @@ struct RegistryDb {
     vertical_grid_operations: BTreeMap<u32, RegistryVerticalGridOperation>,
     operation_ids_by_crs_pair: HashMap<(u32, u32), Vec<u32>>,
     operation_ids_by_datum_pair: HashMap<(u32, u32), Vec<u32>>,
+    extents: BTreeMap<u32, AreaOfUse>,
 }
 
 #[derive(Clone)]
@@ -175,7 +181,14 @@ fn parse_db() -> RegistryDb {
         let datum_code = read_u32(EPSG_DATA, offset + 4);
         let name_len = read_u16(EPSG_DATA, offset + GEO_CRS_RECORD_BASE_SIZE) as usize;
         let name = read_static_string(EPSG_DATA, offset + GEO_CRS_RECORD_BASE_SIZE + 2, name_len);
-        geographic_crs.insert(code, GeographicRecord { datum_code, name });
+        geographic_crs.insert(
+            code,
+            GeographicRecord {
+                datum_code,
+                area_code: read_u32(EPSG_DATA, offset + 8),
+                name,
+            },
+        );
         offset += GEO_CRS_RECORD_BASE_SIZE + 2 + name_len;
     }
 
@@ -206,6 +219,7 @@ fn parse_db() -> RegistryDb {
                 datum_code,
                 method,
                 linear_unit,
+                area_code: read_u32(EPSG_DATA, offset + 80),
                 name,
             },
         );
@@ -229,6 +243,7 @@ fn parse_db() -> RegistryDb {
             VerticalRecord {
                 datum_code,
                 linear_unit,
+                area_code: read_u32(EPSG_DATA, offset + 16),
                 name,
             },
         );
@@ -262,6 +277,7 @@ fn parse_db() -> RegistryDb {
                 vertical_crs_epsg,
                 vertical_datum_epsg,
                 vertical_unit,
+                area_code: read_u32(EPSG_DATA, offset + 28),
                 name,
                 vertical_name,
             },
@@ -554,13 +570,17 @@ fn parse_db() -> RegistryDb {
         let datum_code = read_u32(EPSG_DATA, offset + 4);
         let base_geographic_crs_epsg = read_u32(EPSG_DATA, offset + 8);
         let name_len = read_u16(EPSG_DATA, offset + GEOCENTRIC_CRS_RECORD_BASE_SIZE) as usize;
-        let name =
-            read_static_string(EPSG_DATA, offset + GEOCENTRIC_CRS_RECORD_BASE_SIZE + 2, name_len);
+        let name = read_static_string(
+            EPSG_DATA,
+            offset + GEOCENTRIC_CRS_RECORD_BASE_SIZE + 2,
+            name_len,
+        );
         geocentric_crs.insert(
             code,
             GeocentricRecord {
                 datum_code,
                 base_geographic_crs_epsg,
+                area_code: read_u32(EPSG_DATA, offset + 12),
                 name,
             },
         );
@@ -582,6 +602,7 @@ fn parse_db() -> RegistryDb {
         vertical_grid_operations,
         operation_ids_by_crs_pair,
         operation_ids_by_datum_pair,
+        extents,
     }
 }
 
@@ -909,6 +930,25 @@ pub(crate) fn lookup(code: u32) -> Option<CrsDef> {
         .or_else(|| lookup_compound(code))
 }
 
+fn crs_area_code(db: &RegistryDb, code: u32) -> Option<u32> {
+    db.geographic_crs
+        .get(&code)
+        .map(|record| record.area_code)
+        .or_else(|| db.geocentric_crs.get(&code).map(|record| record.area_code))
+        .or_else(|| db.projected_crs.get(&code).map(|record| record.area_code))
+        .or_else(|| db.vertical_crs.get(&code).map(|record| record.area_code))
+        .or_else(|| db.compound_crs.get(&code).map(|record| record.area_code))
+}
+
+pub(crate) fn lookup_crs_area_of_use(code: u32) -> Option<&'static AreaOfUse> {
+    if code == 0 {
+        return None;
+    }
+    let db = db();
+    let area_code = crs_area_code(db, code).filter(|&c| c != 0)?;
+    db.extents.get(&area_code)
+}
+
 pub(crate) fn lookup_datum_code_for_crs(code: u32) -> Option<u32> {
     db().geographic_crs
         .get(&code)
@@ -1126,6 +1166,23 @@ mod tests {
     fn lookup_utm_18n() {
         let crs = lookup(32618).expect("should find 32618");
         assert_eq!(crs.base_geographic_crs_epsg(), Some(4326));
+        let area = crs.area_of_use().expect("UTM 18N has a CRS usage bbox");
+        assert_eq!(area.west, -78.0);
+        assert_eq!(area.east, -72.0);
+        assert_eq!(area.south, 0.0);
+        assert_eq!(area.north, 84.0);
+    }
+
+    #[test]
+    fn lookup_arctic_polar_stereographic_area() {
+        let area = lookup(3995)
+            .expect("should find 3995")
+            .area_of_use()
+            .expect("EPSG:3995 has a CRS usage bbox");
+        assert_eq!(area.west, -180.0);
+        assert_eq!(area.east, 180.0);
+        assert_eq!(area.south, 60.0);
+        assert_eq!(area.north, 90.0);
     }
 
     #[test]

@@ -178,9 +178,7 @@ pub(crate) fn validate_supported_projected_semantics(
 /// Used to dispatch `GEODCRS` / `GeodeticCRS` between the geographic (ellipsoidal)
 /// and geocentric parse paths. Axis-direction checks belong in
 /// [`validate_supported_geocentric_semantics`], not here.
-pub(crate) fn is_cartesian_3d_coordinate_system(
-    coordinate_system: &CoordinateSystemSpec,
-) -> bool {
+pub(crate) fn is_cartesian_3d_coordinate_system(coordinate_system: &CoordinateSystemSpec) -> bool {
     coordinate_system
         .subtype
         .as_deref()

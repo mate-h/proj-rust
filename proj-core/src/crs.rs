@@ -204,6 +204,15 @@ impl CrsDef {
         }
     }
 
+    /// EPSG usage bbox for this CRS, when the registry records one.
+    ///
+    /// This is the CRS domain, not the selected coordinate-operation area.
+    /// Identity datum pipelines have no operation area of use; callers that
+    /// need to clip a projected CRS should use this instead.
+    pub fn area_of_use(&self) -> Option<&'static crate::operation::AreaOfUse> {
+        crate::epsg_db::lookup_crs_area_of_use(self.epsg())
+    }
+
     /// Returns true when two CRS definitions map to the same internal semantics.
     pub fn semantically_equivalent(&self, other: &Self) -> bool {
         match (self, other) {
@@ -1418,12 +1427,7 @@ mod tests {
 
     #[test]
     fn geocentric_crs_is_geocentric() {
-        let crs = CrsDef::Geocentric(GeocentricCrsDef::new(
-            4978,
-            4326,
-            datum::WGS84,
-            "WGS 84",
-        ));
+        let crs = CrsDef::Geocentric(GeocentricCrsDef::new(4978, 4326, datum::WGS84, "WGS 84"));
         assert!(crs.is_geocentric());
         assert!(!crs.is_geographic());
         assert!(!crs.is_projected());
