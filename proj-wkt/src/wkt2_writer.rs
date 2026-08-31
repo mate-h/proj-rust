@@ -6,8 +6,8 @@
 //! the roundtrip is asserted by tests and fuzzing.
 
 use proj_core::{
-    CompoundCrsDef, CrsDef, Datum, GeographicCrsDef, HorizontalCrsDef, LinearUnit, ProjectedCrsDef,
-    VerticalCrsDef, VerticalCrsKind,
+    CompoundCrsDef, CrsDef, Datum, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef,
+    LinearUnit, ProjectedCrsDef, VerticalCrsDef, VerticalCrsKind,
 };
 
 use crate::wkt_writer::{
@@ -21,6 +21,7 @@ const DEGREE_TO_RADIAN: &str = "0.0174532925199433";
 pub(crate) fn to_wkt2(crs: &CrsDef) -> Result<String> {
     match crs {
         CrsDef::Geographic(geographic) => geographic_wkt2(geographic, None, None, None),
+        CrsDef::Geocentric(geocentric) => geocentric_wkt2(geocentric),
         CrsDef::Projected(projected) => projected_wkt2(projected),
         CrsDef::Compound(compound) => compound_wkt2(compound),
     }
@@ -60,6 +61,20 @@ fn compound_wkt2(compound: &CompoundCrsDef) -> Result<String> {
             Ok(format!("COMPOUNDCRS[{}]", fields.join(",")))
         }
     }
+}
+
+fn geocentric_wkt2(geocentric: &GeocentricCrsDef) -> Result<String> {
+    let datum_epsg =
+        authority_code(geocentric.epsg()).and_then(proj_core::lookup_datum_code_for_crs);
+    let length_unit = length_unit_wkt2(LinearUnit::metre())?;
+    let mut fields = vec![quote(nonempty(geocentric.name(), "unnamed geocentric CRS"))];
+    fields.push(format_wkt2_datum(geocentric.datum(), datum_epsg)?);
+    fields.push("CS[Cartesian,3]".to_string());
+    fields.push(format!("AXIS[\"(X)\",geocentricX,ORDER[1],{length_unit}]"));
+    fields.push(format!("AXIS[\"(Y)\",geocentricY,ORDER[2],{length_unit}]"));
+    fields.push(format!("AXIS[\"(Z)\",geocentricZ,ORDER[3],{length_unit}]"));
+    push_id(&mut fields, geocentric.epsg());
+    Ok(format!("GEODCRS[{}]", fields.join(",")))
 }
 
 fn geographic_wkt2(
@@ -245,9 +260,9 @@ mod tests {
     #[test]
     fn registry_definitions_roundtrip_through_wkt2() {
         let codes = [
-            4326, 4258, 3857, 32618, 3413, 2154, 5070, 3035, 3408, 28992, 3078, 2056, 30200, 3395,
-            32662, 6247, 24200, 6201, 9549, 5514, 5516, 8857, 5880, 27701, 3295, 3993, 2985, 8441,
-            7415, 7678,
+            4326, 4258, 4978, 3857, 32618, 3413, 2154, 5070, 3035, 3408, 28992, 3078, 2056, 30200,
+            3395, 32662, 6247, 24200, 6201, 9549, 5514, 5516, 8857, 5880, 27701, 3295, 3993, 2985,
+            8441, 7415, 7678,
         ];
         for code in codes {
             let original = parse_crs(&format!("EPSG:{code}")).unwrap();

@@ -1,6 +1,6 @@
 use proj_core::{
-    CompoundCrsDef, CrsDef, Datum, GeographicCrsDef, HorizontalCrsDef, LinearUnit, ProjectedCrsDef,
-    ProjectionMethod, VerticalCrsDef, VerticalCrsKind,
+    CompoundCrsDef, CrsDef, Datum, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef,
+    LinearUnit, ProjectedCrsDef, ProjectionMethod, VerticalCrsDef, VerticalCrsKind,
 };
 
 use crate::{ParseError, Result};
@@ -11,6 +11,7 @@ const EPSG_AUTHORITY: &str = "EPSG";
 pub(crate) fn to_wkt(crs: &CrsDef) -> Result<String> {
     match crs {
         CrsDef::Geographic(geographic) => format_geographic_crs(geographic),
+        CrsDef::Geocentric(geocentric) => format_geocentric_crs(geocentric),
         CrsDef::Projected(projected) => format_projected_crs(projected),
         CrsDef::Compound(compound) => format_compound_crs(compound),
     }
@@ -50,6 +51,21 @@ fn format_geographic_crs(geographic: &GeographicCrsDef) -> Result<String> {
         geographic.datum(),
         authority_code(geographic.epsg()),
     )
+}
+
+fn format_geocentric_crs(geocentric: &GeocentricCrsDef) -> Result<String> {
+    let datum_epsg =
+        authority_code(geocentric.epsg()).and_then(proj_core::lookup_datum_code_for_crs);
+    let metre = linear_unit_wkt(LinearUnit::metre())?;
+    let mut fields = vec![quote(wkt_name(geocentric.name(), "unnamed geocentric CRS"))];
+    fields.push(format_datum(geocentric.datum(), datum_epsg)?);
+    fields.push(format_prime_meridian());
+    fields.push(format_linear_unit(&metre));
+    fields.push(r#"AXIS["Geocentric X",OTHER]"#.to_string());
+    fields.push(r#"AXIS["Geocentric Y",OTHER]"#.to_string());
+    fields.push(r#"AXIS["Geocentric Z",NORTH]"#.to_string());
+    push_authority(&mut fields, geocentric.epsg());
+    Ok(format!("GEOCCS[{}]", fields.join(",")))
 }
 
 fn format_geographic_crs_parts(
@@ -1156,6 +1172,16 @@ mod tests {
                 external_sample: false,
             },
             AcceptanceCase {
+                label: "geocentric WGS 84 ECEF",
+                crs: epsg_4978,
+                root: "GEOCCS",
+                name: "WGS 84",
+                authorities: &[4978, 6326, 7030],
+                projected_unit: None,
+                must_carry_vertical: false,
+                external_sample: true,
+            },
+            AcceptanceCase {
                 label: "3D geographic as compound ellipsoidal height",
                 crs: epsg_4979,
                 root: "COMPD_CS",
@@ -1411,6 +1437,10 @@ mod tests {
 
     fn epsg_4258() -> CrsDef {
         epsg(4258)
+    }
+
+    fn epsg_4978() -> CrsDef {
+        epsg(4978)
     }
 
     fn epsg_4979() -> CrsDef {

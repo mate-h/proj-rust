@@ -305,6 +305,33 @@ pub(super) fn compile_vertical_transform(
             vertical_label(source_vertical),
             vertical_label(target_vertical)
         ))),
+        (Some(source_vertical), None)
+            if target.is_geocentric() && source_vertical.kind().is_ellipsoidal_height() =>
+        {
+            // Ellipsoidal height is consumed by geodetic↔ECEF framing (and any
+            // intervening Helmert/geocentric-affine steps). No separate vertical
+            // operation is required; gravity-related heights remain rejected.
+            Ok(VerticalTransform::None {
+                diagnostics: vertical_diagnostics(
+                    VerticalTransformAction::None,
+                    Some("Ellipsoidal height embedded in geocentric conversion".into()),
+                    Some(source_vertical),
+                    None,
+                ),
+            })
+        }
+        (None, Some(target_vertical))
+            if source.is_geocentric() && target_vertical.kind().is_ellipsoidal_height() =>
+        {
+            Ok(VerticalTransform::None {
+                diagnostics: vertical_diagnostics(
+                    VerticalTransformAction::None,
+                    Some("Ellipsoidal height recovered from geocentric conversion".into()),
+                    None,
+                    Some(target_vertical),
+                ),
+            })
+        }
         (Some(_), None) | (None, Some(_)) => Err(Error::OperationSelection(
             "cannot transform between an explicit vertical CRS and a horizontal-only CRS; use Transform::new_horizontal or Transform::from_horizontal_components for an explicitly XY-only transform".into(),
         )),

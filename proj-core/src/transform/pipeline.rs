@@ -41,6 +41,7 @@ pub(super) struct CompiledOperationFallback {
 #[derive(Clone, Copy)]
 pub(super) enum PipelineSourceXyUnits {
     GeographicDegrees,
+    GeocentricMeters,
     ProjectedMeters,
     ProjectedNativeToMeters(LinearUnit),
 }
@@ -48,12 +49,16 @@ pub(super) enum PipelineSourceXyUnits {
 #[derive(Clone, Copy)]
 pub(super) enum PipelineTargetXyUnits {
     GeographicDegrees,
+    GeocentricMeters,
     ProjectedMeters,
     ProjectedMetersToNative(LinearUnit),
 }
 
 impl PipelineSourceXyUnits {
     fn compile(source: &CrsDef) -> Self {
+        if source.is_geocentric() {
+            return Self::GeocentricMeters;
+        }
         match source.as_projected() {
             Some(projected) if projected.linear_unit_to_meter() == 1.0 => Self::ProjectedMeters,
             Some(projected) => Self::ProjectedNativeToMeters(projected.linear_unit()),
@@ -68,6 +73,10 @@ impl PipelineSourceXyUnits {
                 let lat = coord.y.to_radians();
                 validate_lon_lat(lon, lat)?;
                 Ok(Coord3D::new(lon, lat, coord.z))
+            }
+            Self::GeocentricMeters => {
+                validate_pipeline_coord3d("geocentric input coordinate", coord)?;
+                Ok(coord)
             }
             Self::ProjectedMeters => {
                 validate_projected(coord.x, coord.y)?;
@@ -86,6 +95,9 @@ impl PipelineSourceXyUnits {
 
 impl PipelineTargetXyUnits {
     fn compile(target: &CrsDef) -> Self {
+        if target.is_geocentric() {
+            return Self::GeocentricMeters;
+        }
         match target.as_projected() {
             Some(projected) if projected.linear_unit_to_meter() == 1.0 => Self::ProjectedMeters,
             Some(projected) => Self::ProjectedMetersToNative(projected.linear_unit()),
@@ -96,7 +108,7 @@ impl PipelineTargetXyUnits {
     fn denormalize(self, coord: Coord3D) -> Coord {
         match self {
             Self::GeographicDegrees => Coord::new(coord.x.to_degrees(), coord.y.to_degrees()),
-            Self::ProjectedMeters => Coord::new(coord.x, coord.y),
+            Self::GeocentricMeters | Self::ProjectedMeters => Coord::new(coord.x, coord.y),
             Self::ProjectedMetersToNative(unit) => {
                 Coord::new(unit.from_meters(coord.x), unit.from_meters(coord.y))
             }
@@ -231,6 +243,8 @@ pub(super) fn execute_pipeline_xy(
     pipeline: &CompiledOperationPipeline,
     c: Coord3D,
 ) -> Result<Coord> {
+    require_xy_pipeline_supported(pipeline)?;
+
     let mut state = pipeline.source_xy_units.normalize(c)?;
     if pipeline.steps.is_empty() {
         let output = Coord::new(c.x, c.y);
@@ -245,6 +259,22 @@ pub(super) fn execute_pipeline_xy(
     let output = pipeline.target_xy_units.denormalize(state);
     validate_pipeline_coord("pipeline final output", output)?;
     Ok(output)
+}
+
+fn require_xy_pipeline_supported(pipeline: &CompiledOperationPipeline) -> Result<()> {
+    if matches!(
+        pipeline.source_xy_units,
+        PipelineSourceXyUnits::GeocentricMeters
+    ) || matches!(
+        pipeline.target_xy_units,
+        PipelineTargetXyUnits::GeocentricMeters
+    ) {
+        return Err(Error::InvalidDefinition(
+            "geocentric (ECEF) transforms require convert_3d; the 2D convert API cannot represent Z"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Like [`execute_pipeline_xy`] but keeps the pipeline's `z` output, so
@@ -308,6 +338,12 @@ pub(super) fn compile_pipeline(
         steps.push(CompiledStep::ProjectionInverse {
             projection: make_projection(&projected.method(), projected.datum())?,
         });
+    } else if let Some(geocentric) = source.as_geocentric() {
+        // Frame geocentric endpoints into geodetic radians like projections
+        // frame projected metres into geodetic radians.
+        steps.push(CompiledStep::GeocentricToGeodetic {
+            ellipsoid: geocentric.datum().ellipsoid(),
+        });
     }
 
     match operation {
@@ -332,21 +368,31 @@ pub(super) fn compile_pipeline(
         }
     }
 
-    if let Some(projected) = target.as_projected() {
+    if let Some(geocentric) = target.as_geocentric() {
+        steps.push(CompiledStep::GeodeticToGeocentric {
+            ellipsoid: geocentric.datum().ellipsoid(),
+        });
+    } else if let Some(projected) = target.as_projected() {
         steps.push(CompiledStep::ProjectionForward {
             projection: make_projection(&projected.method(), projected.datum())?,
         });
     }
 
-    let transforms_ellipsoidal_height = steps.iter().any(|step| {
-        matches!(
-            step,
-            CompiledStep::Helmert { .. }
-                | CompiledStep::GeocentricAffine { .. }
-                | CompiledStep::GeodeticToGeocentric { .. }
-                | CompiledStep::GeocentricToGeodetic { .. }
-        )
-    });
+    cancel_redundant_geocentric_framing(&mut steps);
+
+    // Geocentric endpoints always own height via cart framing even when
+    // adjacent geodetic↔ECEF pairs cancel (for example identity ECEF↔ECEF).
+    let transforms_ellipsoidal_height = source.is_geocentric()
+        || target.is_geocentric()
+        || steps.iter().any(|step| {
+            matches!(
+                step,
+                CompiledStep::Helmert { .. }
+                    | CompiledStep::GeocentricAffine { .. }
+                    | CompiledStep::GeodeticToGeocentric { .. }
+                    | CompiledStep::GeocentricToGeodetic { .. }
+            )
+        });
 
     Ok(CompiledOperationPipeline {
         steps,
@@ -354,6 +400,49 @@ pub(super) fn compile_pipeline(
         target_xy_units: PipelineTargetXyUnits::compile(target),
         transforms_ellipsoidal_height,
     })
+}
+
+fn ellipsoids_match(a: Ellipsoid, b: Ellipsoid) -> bool {
+    (a.semi_major_axis() - b.semi_major_axis()).abs() < 1e-6
+        && (a.flattening() - b.flattening()).abs() < 1e-12
+}
+
+fn geocentric_framing_cancels(left: &CompiledStep, right: &CompiledStep) -> bool {
+    match (left, right) {
+        (
+            CompiledStep::GeodeticToGeocentric { ellipsoid: a },
+            CompiledStep::GeocentricToGeodetic { ellipsoid: b },
+        )
+        | (
+            CompiledStep::GeocentricToGeodetic { ellipsoid: a },
+            CompiledStep::GeodeticToGeocentric { ellipsoid: b },
+        ) => ellipsoids_match(*a, *b),
+        _ => false,
+    }
+}
+
+/// Drop adjacent geodetic↔ECEF pairs on the same ellipsoid.
+///
+/// Helmert/geocentric-affine sandwiches always enter and leave geodetic space,
+/// so geocentric CRS framing otherwise inserts a redundant round-trip next to
+/// those steps.
+fn cancel_redundant_geocentric_framing(steps: &mut SmallVec<[CompiledStep; 8]>) {
+    loop {
+        let mut removed = false;
+        let mut i = 0;
+        while i + 1 < steps.len() {
+            if geocentric_framing_cancels(&steps[i], &steps[i + 1]) {
+                steps.remove(i + 1);
+                steps.remove(i);
+                removed = true;
+            } else {
+                i += 1;
+            }
+        }
+        if !removed {
+            break;
+        }
+    }
 }
 
 fn compile_operation(
@@ -653,4 +742,36 @@ pub(super) fn should_parallelize(len: usize) -> bool {
 
     let threads = rayon::current_num_threads().max(1);
     len >= PARALLEL_MIN_TOTAL_ITEMS.max(threads.saturating_mul(PARALLEL_MIN_ITEMS_PER_THREAD))
+}
+
+#[cfg(test)]
+mod framing_tests {
+    use super::*;
+    use crate::ellipsoid;
+
+    #[test]
+    fn cancel_adjacent_same_ellipsoid_cart_pair() {
+        let mut steps = SmallVec::<[CompiledStep; 8]>::new();
+        steps.push(CompiledStep::GeocentricToGeodetic {
+            ellipsoid: ellipsoid::WGS84,
+        });
+        steps.push(CompiledStep::GeodeticToGeocentric {
+            ellipsoid: ellipsoid::WGS84,
+        });
+        cancel_redundant_geocentric_framing(&mut steps);
+        assert!(steps.is_empty());
+    }
+
+    #[test]
+    fn keep_cart_pair_on_different_ellipsoids() {
+        let mut steps = SmallVec::<[CompiledStep; 8]>::new();
+        steps.push(CompiledStep::GeodeticToGeocentric {
+            ellipsoid: ellipsoid::CLARKE1866,
+        });
+        steps.push(CompiledStep::GeocentricToGeodetic {
+            ellipsoid: ellipsoid::WGS84,
+        });
+        cancel_redundant_geocentric_framing(&mut steps);
+        assert_eq!(steps.len(), 2);
+    }
 }

@@ -57,18 +57,20 @@ With the default `geo-types` feature, `Transform` also supports `geo_types::Coor
 `proj-wkt` accepts:
 
 - EPSG authority codes, bare EPSG numbers, EPSG URNs, and OGC `CRS:84`.
-- Common PROJ strings for the implemented projection families, including legacy `+init=epsg:XXXX`.
-- WKT1 and supported WKT2 geographic/projected CRS definitions.
+- Common PROJ strings for the implemented projection families, including `+proj=cart` / `+proj=geocent` ECEF CRS definitions and legacy `+init=epsg:XXXX`.
+- WKT1 and supported WKT2 geographic/projected/geocentric CRS definitions.
+- WKT1 `GEOCCS`, WKT2 geocentric `GEODCRS`, and PROJJSON Cartesian `GeodeticCRS` for ECEF definitions such as EPSG:4978.
 - WKT1 `COMPD_CS` and WKT2 `COMPOUNDCRS` definitions with explicit vertical components.
-- Basic PROJJSON geographic, projected, and compound CRS definitions.
+- Basic PROJJSON geographic, projected, geocentric, and compound CRS definitions.
 
-Custom definitions are accepted only when they map to this library's CRS model: longitude/east, latitude/north geographic axes in degrees with a Greenwich prime meridian, and projected easting/northing axes in a single linear unit. EPSG-tagged WKT1 definitions may use the authority-native axis order; a pure axis permutation is canonicalized to the library's coordinate order after the embedded definition is validated against the registry. Unsupported custom axis order, axis directions, prime meridian, angular unit, projection, or vertical transformation semantics return errors.
+Custom definitions are accepted only when they map to this library's CRS model: longitude/east, latitude/north geographic axes in degrees with a Greenwich prime meridian; geocentric ECEF X/Y/Z axes in metres; and projected easting/northing axes in a single linear unit. EPSG-tagged WKT1 definitions may use the authority-native axis order; a pure axis permutation is canonicalized to the library's coordinate order after the embedded definition is validated against the registry. Unsupported custom axis order, axis directions, prime meridian, angular unit, projection, or vertical transformation semantics return errors.
 
 ## Supported CRS
 
 | CRS or projection | EPSG examples |
 |---|---|
 | Geographic CRS and datum identity | EPSG:4326, EPSG:4269, EPSG:4267, EPSG:4258 |
+| Geocentric / ECEF | EPSG:4978 |
 | 3D geographic and compatible compound CRS | EPSG:4979 |
 | Generated vertical CRS metadata and same-reference unit conversion | EPSG:3855, EPSG:5702, EPSG:5703, EPSG:5773, EPSG:6360, EPSG:5709, and other supported EPSG vertical CRS records |
 | Grid-based 3D compound (with `geotiff`) | EPSG:7415 (RD New + NAP, RDNAPTRANS2018) |
@@ -92,6 +94,8 @@ Custom definitions are accepted only when they map to this library's CRS model: 
 `Transform::new()` and `Transform::from_crs_defs()` select the best supported operation for a CRS pair. Use `Transform::with_selection_options()` or `Transform::from_crs_defs_with_selection_options()` to set an area of interest, require grid-backed operations, require exact area matches, provide a `GridProvider`, select an explicit registry operation, or provide explicit custom horizontal `CoordinateOperation` candidates.
 
 Operation selection candidates come only from the embedded registry, deterministic generated-registry records, explicit caller/parser-provided coordinate operations, and internal identity/no-datum-operation behavior. Selection does not synthesize Helmert, grid, or WGS84-compatible identity operations from datum metadata. CRS pairs without a registry/generated-registry operation, explicit operation, or identity path fail during transform construction.
+
+Geodetic ↔ geocentric pairs (for example `EPSG:4326`/`EPSG:4979` ↔ `EPSG:4978`, including cross-datum ellipsoidal-height compounds such as `EPSG:4937` → `EPSG:4978`) use the selected horizontal operation plus geocentric framing steps, analogous to how projected CRS pairs wrap projection forward/inverse around the selected operation. Gravity-related heights cannot target ECEF directly. Use `convert_3d` for ECEF coordinates — the 2D `convert` API rejects geocentric endpoints instead of returning X/Y only. Geographic inputs remain longitude/latitude in degrees with ellipsoidal height in metres.
 
 ## Grids
 

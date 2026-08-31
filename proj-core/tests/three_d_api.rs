@@ -1,5 +1,127 @@
 use proj_core::{Coord3D, Transform};
 
+/// WGS 84 geodetic (lon/lat/h) → ECEF checkpoint for NYC from C PROJ /
+/// GeographicLib cartography on the WGS 84 ellipsoid.
+const NYC_LON_LAT_H: (f64, f64, f64) = (-74.006, 40.7128, 10.0);
+const NYC_ECEF_XYZ: (f64, f64, f64) = (
+    1_334_000.544_686_07,
+    -4_654_052.129_206_82,
+    4_138_306.761_372_84,
+);
+
+#[test]
+fn wgs84_geographic_to_ecef_checkpoint() {
+    let t = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
+    let (x, y, z) = t.convert_3d(NYC_LON_LAT_H).unwrap();
+
+    assert!((x - NYC_ECEF_XYZ.0).abs() < 1e-4, "x = {x}");
+    assert!((y - NYC_ECEF_XYZ.1).abs() < 1e-4, "y = {y}");
+    assert!((z - NYC_ECEF_XYZ.2).abs() < 1e-4, "z = {z}");
+
+    let inv = t.inverse().unwrap();
+    let (lon, lat, h) = inv.convert_3d((x, y, z)).unwrap();
+    assert!((lon - NYC_LON_LAT_H.0).abs() < 1e-10);
+    assert!((lat - NYC_LON_LAT_H.1).abs() < 1e-10);
+    assert!((h - NYC_LON_LAT_H.2).abs() < 1e-6);
+}
+
+#[test]
+fn wgs84_geographic_3d_to_ecef_roundtrip() {
+    let t = Transform::new("EPSG:4979", "EPSG:4978").unwrap();
+    let ecef = t.convert_3d(NYC_LON_LAT_H).unwrap();
+    assert!((ecef.0 - NYC_ECEF_XYZ.0).abs() < 1e-4);
+    assert!((ecef.1 - NYC_ECEF_XYZ.1).abs() < 1e-4);
+    assert!((ecef.2 - NYC_ECEF_XYZ.2).abs() < 1e-4);
+
+    let back = t.inverse().unwrap().convert_3d(ecef).unwrap();
+    assert!((back.0 - NYC_LON_LAT_H.0).abs() < 1e-10);
+    assert!((back.1 - NYC_LON_LAT_H.1).abs() < 1e-10);
+    assert!((back.2 - NYC_LON_LAT_H.2).abs() < 1e-6);
+}
+
+#[test]
+fn cross_datum_ellipsoidal_3d_to_ecef() {
+    // ETRS89 3D (ellipsoidal height) → WGS 84 ECEF must be allowed: height is
+    // consumed by cart framing after the selected horizontal datum operation.
+    let compound = Transform::new("EPSG:4937", "EPSG:4978").unwrap();
+    assert!(
+        compound
+            .vertical_diagnostics()
+            .operation_name
+            .as_deref()
+            .is_some_and(|name| name.contains("embedded in geocentric")),
+        "expected geocentric vertical embedding, got {:?}",
+        compound.vertical_diagnostics()
+    );
+
+    // Same horizontal datum without a compound vertical CRS should match:
+    // convert_3d treats z as ellipsoidal height into ECEF.
+    let geographic = Transform::new("EPSG:4258", "EPSG:4978").unwrap();
+    let from_compound = compound.convert_3d(NYC_LON_LAT_H).unwrap();
+    let from_geographic = geographic.convert_3d(NYC_LON_LAT_H).unwrap();
+    assert!((from_compound.0 - from_geographic.0).abs() < 1e-9);
+    assert!((from_compound.1 - from_geographic.1).abs() < 1e-9);
+    assert!((from_compound.2 - from_geographic.2).abs() < 1e-9);
+
+    // True cross-datum: NAD27 geographic → ECEF matches the chained path.
+    let nad27_direct = Transform::new("EPSG:4267", "EPSG:4978").unwrap();
+    let nad27_chained = {
+        let to_wgs84 = Transform::new("EPSG:4267", "EPSG:4326").unwrap();
+        let to_ecef = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
+        let mid = to_wgs84.convert_3d((-90.0, 45.0, 250.0)).unwrap();
+        to_ecef.convert_3d(mid).unwrap()
+    };
+    let nad27_ecef = nad27_direct.convert_3d((-90.0, 45.0, 250.0)).unwrap();
+    assert!((nad27_ecef.0 - nad27_chained.0).abs() < 1e-6);
+    assert!((nad27_ecef.1 - nad27_chained.1).abs() < 1e-6);
+    assert!((nad27_ecef.2 - nad27_chained.2).abs() < 1e-6);
+}
+
+#[test]
+fn projected_to_ecef_matches_geographic_path() {
+    let to_utm = Transform::new("EPSG:4326", "EPSG:32618").unwrap();
+    let utm = to_utm.convert_3d(NYC_LON_LAT_H).unwrap();
+
+    let utm_to_ecef = Transform::new("EPSG:32618", "EPSG:4978").unwrap();
+    let ecef = utm_to_ecef.convert_3d(utm).unwrap();
+    assert!((ecef.0 - NYC_ECEF_XYZ.0).abs() < 1e-3, "x = {}", ecef.0);
+    assert!((ecef.1 - NYC_ECEF_XYZ.1).abs() < 1e-3, "y = {}", ecef.1);
+    assert!((ecef.2 - NYC_ECEF_XYZ.2).abs() < 1e-3, "z = {}", ecef.2);
+
+    let back = utm_to_ecef.inverse().unwrap().convert_3d(ecef).unwrap();
+    assert!((back.0 - utm.0).abs() < 1e-6);
+    assert!((back.1 - utm.1).abs() < 1e-6);
+    assert!((back.2 - utm.2).abs() < 1e-6);
+}
+
+#[test]
+fn gravity_related_height_to_ecef_is_rejected() {
+    let err = Transform::new("EPSG:7415", "EPSG:4978").unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("explicit vertical CRS and a horizontal-only CRS"),
+        "got {err}"
+    );
+}
+
+#[test]
+fn convert_2d_rejects_geocentric_endpoints() {
+    let to_ecef = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
+    let err = to_ecef.convert((-74.006, 40.7128)).unwrap_err();
+    assert!(err.to_string().contains("require convert_3d"), "got {err}");
+
+    let from_ecef = Transform::new("EPSG:4978", "EPSG:4326").unwrap();
+    let err = from_ecef
+        .convert((NYC_ECEF_XYZ.0, NYC_ECEF_XYZ.1))
+        .unwrap_err();
+    assert!(err.to_string().contains("require convert_3d"), "got {err}");
+
+    let err = to_ecef
+        .convert_with_diagnostics((-74.006, 40.7128))
+        .unwrap_err();
+    assert!(err.to_string().contains("require convert_3d"), "got {err}");
+}
+
 #[test]
 fn tuple3d_wgs84_to_web_mercator() {
     let t = Transform::new("EPSG:4326", "EPSG:3857").unwrap();

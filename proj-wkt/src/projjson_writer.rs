@@ -7,8 +7,8 @@
 //! asserted by tests and fuzzing.
 
 use proj_core::{
-    CompoundCrsDef, CrsDef, Datum, GeographicCrsDef, HorizontalCrsDef, LinearUnit, ProjectedCrsDef,
-    VerticalCrsDef, VerticalCrsKind,
+    CompoundCrsDef, CrsDef, Datum, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef,
+    LinearUnit, ProjectedCrsDef, VerticalCrsDef, VerticalCrsKind,
 };
 use serde_json::{json, Map, Value};
 
@@ -22,6 +22,7 @@ const PROJJSON_SCHEMA: &str = "https://proj.org/schemas/v0.7/projjson.schema.jso
 pub(crate) fn to_projjson_value(crs: &CrsDef) -> Result<Value> {
     let mut value = match crs {
         CrsDef::Geographic(geographic) => geographic_crs_value(geographic, None)?,
+        CrsDef::Geocentric(geocentric) => geocentric_crs_value(geocentric)?,
         CrsDef::Projected(projected) => projected_crs_value(projected)?,
         CrsDef::Compound(compound) => compound_crs_value(compound)?,
     };
@@ -80,6 +81,50 @@ fn crs_object_mut(value: &mut Value) -> Result<&mut Map<String, Value>> {
     value.as_object_mut().ok_or_else(|| {
         ParseError::Parse("internal PROJJSON serializer produced a non-object CRS value".into())
     })
+}
+
+fn geocentric_crs_value(geocentric: &GeocentricCrsDef) -> Result<Value> {
+    let mut object = Map::new();
+    object.insert("type".into(), Value::String("GeodeticCRS".into()));
+    object.insert(
+        "name".into(),
+        Value::String(nonempty_name(geocentric.name(), "unnamed geocentric CRS")),
+    );
+    object.insert(
+        "datum".into(),
+        datum_value(
+            geocentric.datum(),
+            authority_code(geocentric.epsg()).and_then(proj_core::lookup_datum_code_for_crs),
+        )?,
+    );
+    object.insert(
+        "coordinate_system".into(),
+        json!({
+            "subtype": "Cartesian",
+            "axis": [
+                {
+                    "name": "Geocentric X",
+                    "abbreviation": "X",
+                    "direction": "geocentricX",
+                    "unit": "metre",
+                },
+                {
+                    "name": "Geocentric Y",
+                    "abbreviation": "Y",
+                    "direction": "geocentricY",
+                    "unit": "metre",
+                },
+                {
+                    "name": "Geocentric Z",
+                    "abbreviation": "Z",
+                    "direction": "geocentricZ",
+                    "unit": "metre",
+                },
+            ],
+        }),
+    );
+    insert_id(&mut object, geocentric.epsg());
+    Ok(Value::Object(object))
 }
 
 fn geographic_crs_value(
@@ -328,6 +373,7 @@ mod tests {
         let codes = [
             4326,  // geographic
             4258,  // geographic (ETRS89)
+            4978,  // geocentric / ECEF
             3857,  // Web Mercator
             32618, // transverse Mercator
             3413,  // polar stereographic

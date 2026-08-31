@@ -188,6 +188,19 @@ mod tests {
     }
 
     #[test]
+    fn lookup_wgs84_geocentric() {
+        let crs = lookup_epsg(4978).expect("should find 4978");
+        assert!(crs.is_geocentric());
+        assert!(!crs.is_geographic());
+        assert!(!crs.is_projected());
+        assert!(!crs.is_compound());
+        assert_eq!(crs.epsg(), 4978);
+        assert_eq!(crs.name(), "WGS 84");
+        assert_eq!(crs.base_geographic_crs_epsg(), Some(4326));
+        assert!(crs.vertical_crs().is_none());
+    }
+
+    #[test]
     fn lookup_navd88_vertical_crs() {
         let crs = lookup_vertical_epsg(5703).expect("should find NAVD88 height");
         assert_eq!(crs.epsg(), 5703);
@@ -340,7 +353,7 @@ mod tests {
     fn embedded_registry_provenance_reports_source_database() {
         let value: serde_json::Value =
             serde_json::from_str(embedded_registry_provenance_json()).unwrap();
-        assert_eq!(value["schema_version"], 5);
+        assert_eq!(value["schema_version"], 6);
         assert_eq!(
             value["registry_format"]["version"],
             proj_epsg_format::VERSION
@@ -357,9 +370,11 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("sha256:"));
-        assert_eq!(value["output"]["byte_len"], 1097298);
+        assert_eq!(value["output"]["byte_len"], 1_298_021);
+        assert_eq!(value["counts"]["extents"], 3137);
         assert_eq!(value["counts"]["vertical_crs"], 293);
         assert_eq!(value["counts"]["compound_crs"], 684);
+        assert_eq!(value["counts"]["geocentric_crs"], 217);
         assert_eq!(value["counts"]["grid_resources"], 726);
         assert_eq!(value["counts"]["operations"], 2157);
         assert_eq!(value["counts"]["vertical_operations"], 716);

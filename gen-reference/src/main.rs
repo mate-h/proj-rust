@@ -136,11 +136,12 @@ mod promoted_3d {
             }
         };
 
+        // Point AOI only when inputs look like geographic degrees. ECEF or
+        // projected metre inputs are not lon/lat and must not be used as a bbox.
         let area = proj_area_create();
-        // Match the corpus test's point AOI. Without this, promoted 3D
-        // construction can choose a location-independent operation that
-        // differs from point-aware operation selection.
-        proj_area_set_bbox(area, coord.0, coord.1, coord.0, coord.1);
+        if (-180.0..=180.0).contains(&coord.0) && (-90.0..=90.0).contains(&coord.1) {
+            proj_area_set_bbox(area, coord.0, coord.1, coord.0, coord.1);
+        }
         let raw = proj_create_crs_to_crs_from_pj(ctx, from_crs, to_crs, area, ptr::null());
         proj_area_destroy(area);
         proj_destroy(from_crs);
@@ -1226,6 +1227,46 @@ fn main() {
             0.01,
             0.01,
             "London 3D WGS84→British National Grid",
+        ),
+        (
+            4326,
+            4978,
+            -74.006,
+            40.7128,
+            10.0,
+            1e-4,
+            1e-4,
+            "NYC 3D WGS84→ECEF",
+        ),
+        (
+            4979,
+            4978,
+            -74.006,
+            40.7128,
+            10.0,
+            1e-4,
+            1e-4,
+            "NYC 3D WGS84 geographic 3D→ECEF",
+        ),
+        (
+            4978,
+            4326,
+            1_334_000.544_686_07,
+            -4_654_052.129_206_82,
+            4_138_306.761_372_84,
+            1e-9,
+            1e-6,
+            "NYC 3D ECEF→WGS84",
+        ),
+        (
+            32618,
+            4978,
+            583960.311_157_47,
+            4_507_523.066_994_61,
+            10.0,
+            1e-3,
+            1e-3,
+            "NYC 3D UTM 18N→ECEF",
         ),
     ];
     for &(from_epsg, to_epsg, x, y, z, tol, tol_z, name) in three_d_points {

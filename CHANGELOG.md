@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- breaking: add `CrsDef::Geocentric` / `GeocentricCrsDef` and bump the embedded registry format to v11 with a geocentric CRS section; exhaustive matches on `CrsDef` must handle the new variant
+- expose WGS 84 ECEF (`EPSG:4978`) and other same-ellipsoid geocentric CRS records from the generated registry, with geodetic ↔ ECEF transforms via `Transform::new` / `convert_3d`
+- add WKT1 `GEOCCS`, WKT2 geocentric `GEODCRS`, and PROJJSON Cartesian `GeodeticCRS` serialize/parse support for geocentric CRS definitions
+- accept `+proj=cart` / `+proj=geocent` PROJ strings as metre ECEF CRS definitions (same-datum geodetic ↔ ECEF via `convert_3d`)
+- make 2D `Transform::convert` reject geocentric (ECEF) endpoints so callers must use `convert_3d` instead of silently dropping Z
+- allow ellipsoidal-height compound CRS ↔ geocentric transforms across datums (for example `EPSG:4937` → `EPSG:4978`); gravity-related heights remain rejected
+- add C PROJ live/corpus ECEF reference cases for `EPSG:4978`, geocentric fuzz seeds, and cancel redundant geodetic↔ECEF framing around Helmert sandwiches
+
 ## 0.11.0 - 2026-08-10
 
 - breaking: add `OperationMethod::GeocentricAffine` and `GeocentricAffineParams` for exact full-matrix transformations, and bump the embedded registry format to v10; exhaustive matches on `OperationMethod` must handle the new variant

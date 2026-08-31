@@ -1,6 +1,7 @@
 use crate::semantics::{
-    approx_eq, linear_unit_from_meters_per_unit, normalize_key, projection_parameter_unit_kind,
-    radians_to_degrees_factor, resolve_structured_datum_or_custom,
+    approx_eq, is_cartesian_3d_coordinate_system, linear_unit_from_meters_per_unit, normalize_key,
+    projection_parameter_unit_kind, radians_to_degrees_factor, resolve_structured_datum_or_custom,
+    validate_supported_geocentric_semantics,
     validate_supported_geographic_or_ellipsoidal_height_semantics,
     validate_supported_geographic_semantics, validate_supported_projected_semantics,
     validate_supported_vertical_coordinate_system, validate_vertical_unit_matches_authority,
@@ -9,8 +10,9 @@ use crate::semantics::{
 };
 use crate::{ParseError, Result};
 use proj_core::{
-    CompoundCrsDef, CrsDef, Datum, DatumToWgs84, GeographicCrsDef, HorizontalCrsDef, LinearUnit,
-    ProjectedCrsDef, ProjectionMethod, VerticalCrsDef, VerticalCrsKind,
+    CompoundCrsDef, CrsDef, Datum, DatumToWgs84, GeocentricCrsDef, GeographicCrsDef,
+    HorizontalCrsDef, LinearUnit, ProjectedCrsDef, ProjectionMethod, VerticalCrsDef,
+    VerticalCrsKind,
 };
 use std::collections::HashMap;
 
@@ -197,10 +199,21 @@ fn parse_wkt_structure(s: &str, axis_order_policy: AxisOrderPolicy) -> Result<Cr
         )));
     };
 
-    if root_name.eq_ignore_ascii_case("GEOGCS")
-        || root_name.eq_ignore_ascii_case("GEODCRS")
-        || root_name.eq_ignore_ascii_case("GEOGCRS")
-    {
+    if root_name.eq_ignore_ascii_case("GEOCCS") {
+        return parse_wkt_geocentric(s);
+    }
+
+    if root_name.eq_ignore_ascii_case("GEODCRS") {
+        let root_inner = root_inner(s).ok_or_else(|| {
+            ParseError::Parse(format!("unrecognized WKT root element: {:.40}", s))
+        })?;
+        if is_cartesian_3d_coordinate_system(&extract_coordinate_system(root_inner)) {
+            return parse_wkt_geocentric(s);
+        }
+        return parse_wkt_geographic(s, axis_order_policy);
+    }
+
+    if root_name.eq_ignore_ascii_case("GEOGCS") || root_name.eq_ignore_ascii_case("GEOGCRS") {
         return parse_wkt_geographic(s, axis_order_policy);
     }
 
@@ -267,6 +280,44 @@ fn parse_wkt_geographic(s: &str, axis_order_policy: AxisOrderPolicy) -> Result<C
             ))))
         }
     }
+}
+
+fn parse_wkt_geocentric(s: &str) -> Result<CrsDef> {
+    let root_inner = root_inner(s)
+        .ok_or_else(|| ParseError::Parse(format!("unrecognized WKT root element: {:.40}", s)))?;
+    let coordinate_system = extract_coordinate_system(root_inner);
+    let linear_unit = extract_geocentric_linear_unit(root_inner, &coordinate_system)?;
+    let prime_meridian_degrees = extract_prime_meridian_degrees(root_inner, 1.0);
+    validate_supported_geocentric_semantics(
+        "WKT geocentric CRS",
+        prime_meridian_degrees,
+        linear_unit,
+        &coordinate_system,
+    )?;
+
+    let datum = infer_datum_from_geographic_inner(root_inner)?;
+    Ok(CrsDef::Geocentric(GeocentricCrsDef::new(0, 0, datum, "")))
+}
+
+fn extract_geocentric_linear_unit(
+    inner: &str,
+    coordinate_system: &CoordinateSystemSpec,
+) -> Result<Option<LinearUnit>> {
+    let top_level_linear_unit = extract_top_level_length_unit(inner, true);
+    let axis_linear_unit = coordinate_system_linear_unit("WKT geocentric CRS", coordinate_system)?;
+    if let (Some(top_level_linear_unit), Some(axis_linear_unit)) =
+        (top_level_linear_unit, axis_linear_unit)
+    {
+        if !approx_eq(
+            top_level_linear_unit.meters_per_unit(),
+            axis_linear_unit.meters_per_unit(),
+        ) {
+            return Err(ParseError::UnsupportedSemantics(
+                "WKT geocentric CRS declares conflicting linear units".into(),
+            ));
+        }
+    }
+    Ok(top_level_linear_unit.or(axis_linear_unit))
 }
 
 fn parse_wkt_projected(s: &str, axis_order_policy: AxisOrderPolicy) -> Result<CrsDef> {
@@ -840,6 +891,9 @@ fn wkt_semantically_equivalent(a: &CrsDef, b: &CrsDef) -> bool {
 
     match (a, b) {
         (CrsDef::Geographic(a), CrsDef::Geographic(b)) => {
+            wkt_datums_equivalent(a.datum(), b.datum())
+        }
+        (CrsDef::Geocentric(a), CrsDef::Geocentric(b)) => {
             wkt_datums_equivalent(a.datum(), b.datum())
         }
         (CrsDef::Projected(a), CrsDef::Projected(b)) => {
@@ -1671,6 +1725,54 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("non-Greenwich prime meridian"));
+    }
+
+    #[test]
+    fn parse_wkt1_geocentric_without_authority() {
+        let wkt = r#"GEOCCS["custom",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1],AXIS["Geocentric X",OTHER],AXIS["Geocentric Y",OTHER],AXIS["Geocentric Z",NORTH]]"#;
+        let crs = parse_wkt(wkt).unwrap();
+        assert!(crs.is_geocentric());
+        assert_eq!(crs.epsg(), 0);
+    }
+
+    #[test]
+    fn parse_wkt2_geocentric_without_authority() {
+        let wkt = r#"GEODCRS["custom",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],CS[Cartesian,3],AXIS["(X)",geocentricX,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(Y)",geocentricY,ORDER[2],LENGTHUNIT["metre",1]],AXIS["(Z)",geocentricZ,ORDER[3],LENGTHUNIT["metre",1]]]"#;
+        let crs = parse_wkt(wkt).unwrap();
+        assert!(crs.is_geocentric());
+        assert_eq!(crs.epsg(), 0);
+    }
+
+    #[test]
+    fn reject_geocentric_wkt_with_non_metre_unit() {
+        let err = parse_wkt(
+            r#"GEOCCS["custom",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Foot",0.3048],AXIS["Geocentric X",OTHER],AXIS["Geocentric Y",OTHER],AXIS["Geocentric Z",NORTH]]"#,
+        )
+        .unwrap_err();
+        assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
+        assert!(err.to_string().contains("linear units other than metres"));
+    }
+
+    #[test]
+    fn reject_geocentric_wkt_with_non_greenwich_prime_meridian() {
+        let err = parse_wkt(
+            r#"GEOCCS["custom",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Paris",2.33722917],UNIT["metre",1],AXIS["Geocentric X",OTHER],AXIS["Geocentric Y",OTHER],AXIS["Geocentric Z",NORTH]]"#,
+        )
+        .unwrap_err();
+        assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
+        assert!(err.to_string().contains("non-Greenwich prime meridian"));
+    }
+
+    #[test]
+    fn reject_geocentric_wkt2_with_wrong_axes() {
+        let err = parse_wkt(
+            r#"GEODCRS["custom",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],CS[Cartesian,3],AXIS["(X)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(Y)",north,ORDER[2],LENGTHUNIT["metre",1]],AXIS["(Z)",up,ORDER[3],LENGTHUNIT["metre",1]]]"#,
+        )
+        .unwrap_err();
+        assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
+        assert!(err
+            .to_string()
+            .contains("unsupported axis order/directions"));
     }
 
     #[test]
