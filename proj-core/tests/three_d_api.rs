@@ -1,4 +1,4 @@
-use proj_core::{Coord3D, Transform};
+use proj_core::{CompoundCrsDef, Coord3D, CrsDef, Datum, LinearUnit, Transform, VerticalCrsDef};
 
 /// WGS 84 geodetic (lon/lat/h) → ECEF checkpoint for NYC from C PROJ /
 /// GeographicLib cartography on the WGS 84 ellipsoid.
@@ -92,6 +92,39 @@ fn projected_to_ecef_matches_geographic_path() {
     assert!((back.0 - utm.0).abs() < 1e-6);
     assert!((back.1 - utm.1).abs() < 1e-6);
     assert!((back.2 - utm.2).abs() < 1e-6);
+}
+
+fn geographic_with_ellipsoidal_height(
+    horizontal_epsg: u32,
+    height_datum: Datum,
+    unit: LinearUnit,
+) -> CrsDef {
+    CrsDef::Compound(Box::new(
+        CompoundCrsDef::from_crs_def(
+            0,
+            proj_core::lookup_epsg(horizontal_epsg).unwrap(),
+            VerticalCrsDef::ellipsoidal_height(0, height_datum, unit, ""),
+            "",
+        )
+        .unwrap(),
+    ))
+}
+
+#[test]
+fn ellipsoidal_height_units_are_converted_at_ecef_boundary() {
+    let source =
+        geographic_with_ellipsoidal_height(4326, proj_core::datum::WGS84, LinearUnit::foot());
+    let t = Transform::from_crs_defs(&source, &proj_core::lookup_epsg(4978).unwrap()).unwrap();
+
+    let (x, _, _) = t.convert_3d((0.0, 0.0, 1.0)).unwrap();
+    assert!((x - 6_378_137.304_8).abs() < 1e-6, "X = {x}");
+
+    let (_, _, h) = t
+        .inverse()
+        .unwrap()
+        .convert_3d((6_378_138.0, 0.0, 0.0))
+        .unwrap();
+    assert!((h - 1.0 / 0.3048).abs() < 1e-8, "h = {h}");
 }
 
 #[test]

@@ -279,7 +279,8 @@ fn require_xy_pipeline_supported(pipeline: &CompiledOperationPipeline) -> Result
 
 /// Like [`execute_pipeline_xy`] but keeps the pipeline's `z` output, so
 /// datum-shift-induced ellipsoidal height changes survive. `z` is in meters
-/// throughout; the x/y unit adapters do not touch it.
+/// throughout; the x/y unit adapters do not touch it. Callers convert
+/// native ellipsoidal-height units at a geocentric CRS boundary.
 pub(super) fn execute_pipeline_xyz(
     pipeline: &CompiledOperationPipeline,
     c: Coord3D,

@@ -1,7 +1,7 @@
 use crate::coord::{
     Bounds, Coord, Coord3D, Transformable, Transformable3D, MAX_BOUNDS_DENSIFY_POINTS,
 };
-use crate::crs::CrsDef;
+use crate::crs::{CrsDef, LinearUnit};
 use crate::error::{Error, Result};
 use crate::grid::{GridError, GridRuntime};
 use crate::operation::{
@@ -63,6 +63,12 @@ fn validate_vertical_composition(
         ));
     }
     Ok(())
+}
+
+/// Vertical unit of `crs` when it differs from metres.
+fn non_metre_height_unit(crs: &CrsDef) -> Option<LinearUnit> {
+    let unit = crs.vertical_crs()?.linear_unit();
+    ((unit.meters_per_unit() - 1.0).abs() > 1e-12).then_some(unit)
 }
 
 /// A reusable coordinate transformation between two CRS.
@@ -740,6 +746,34 @@ impl Transform {
             && matches!(self.vertical_transform, VerticalTransform::None { .. })
     }
 
+    /// Run a pipeline that owns `z` (Helmert / ECEF framing).
+    ///
+    /// `execute_pipeline_xyz` treats height as metres. Only a mixed
+    /// geographic or projected to ECEF pair may rescale, and only when the
+    /// non-geocentric side has a non-metre vertical unit.
+    fn execute_pipeline_owned(
+        &self,
+        pipeline: &CompiledOperationPipeline,
+        mut coord: Coord3D,
+    ) -> Result<Coord3D> {
+        match (self.source.is_geocentric(), self.target.is_geocentric()) {
+            (false, true) => {
+                if let Some(unit) = non_metre_height_unit(&self.source) {
+                    coord.z = unit.to_meters(coord.z);
+                }
+                execute_pipeline_xyz(pipeline, coord)
+            }
+            (true, false) => {
+                coord = execute_pipeline_xyz(pipeline, coord)?;
+                if let Some(unit) = non_metre_height_unit(&self.target) {
+                    coord.z = unit.from_meters(coord.z);
+                }
+                Ok(coord)
+            }
+            _ => execute_pipeline_xyz(pipeline, coord),
+        }
+    }
+
     fn execute_pipeline(
         &self,
         pipeline: &CompiledOperationPipeline,
@@ -747,7 +781,7 @@ impl Transform {
     ) -> Result<PipelineExecutionOutcome> {
         validate_vertical_ordinate(c.z)?;
         if self.pipeline_owns_height(pipeline) {
-            let coord = execute_pipeline_xyz(pipeline, c)?;
+            let coord = self.execute_pipeline_owned(pipeline, c)?;
             return Ok(PipelineExecutionOutcome {
                 coord,
                 vertical: self.vertical_transform.diagnostics().clone(),
@@ -770,7 +804,7 @@ impl Transform {
     ) -> Result<Coord3D> {
         validate_vertical_ordinate(c.z)?;
         if self.pipeline_owns_height(pipeline) {
-            return execute_pipeline_xyz(pipeline, c);
+            return self.execute_pipeline_owned(pipeline, c);
         }
         let xy = execute_pipeline_xy(pipeline, c)?;
         let z = self.vertical_transform.apply_z(c)?;

@@ -309,8 +309,9 @@ pub(super) fn compile_vertical_transform(
             if target.is_geocentric() && source_vertical.kind().is_ellipsoidal_height() =>
         {
             // Ellipsoidal height is consumed by geodetic↔ECEF framing (and any
-            // intervening Helmert/geocentric-affine steps). No separate vertical
-            // operation is required; gravity-related heights remain rejected.
+            // intervening Helmert/geocentric-affine steps). Height units are
+            // converted to metres at that boundary. Gravity-related heights
+            // remain rejected.
             Ok(VerticalTransform::None {
                 diagnostics: vertical_diagnostics(
                     VerticalTransformAction::None,
