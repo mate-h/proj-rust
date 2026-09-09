@@ -554,8 +554,11 @@ fn parse_db() -> RegistryDb {
         let datum_code = read_u32(EPSG_DATA, offset + 4);
         let base_geographic_crs_epsg = read_u32(EPSG_DATA, offset + 8);
         let name_len = read_u16(EPSG_DATA, offset + GEOCENTRIC_CRS_RECORD_BASE_SIZE) as usize;
-        let name =
-            read_static_string(EPSG_DATA, offset + GEOCENTRIC_CRS_RECORD_BASE_SIZE + 2, name_len);
+        let name = read_static_string(
+            EPSG_DATA,
+            offset + GEOCENTRIC_CRS_RECORD_BASE_SIZE + 2,
+            name_len,
+        );
         geocentric_crs.insert(
             code,
             GeocentricRecord {

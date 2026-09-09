@@ -55,11 +55,19 @@ impl AxisDirection {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CrsTextFormat {
+    Wkt1,
+    Wkt2,
+    ProjJson,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CoordinateSystemSpec {
     pub subtype: Option<String>,
     pub dimension: Option<usize>,
     pub axes: Vec<AxisDirection>,
+    pub axis_names: Vec<String>,
     pub axis_linear_units: Vec<Option<LinearUnit>>,
     pub axis_angle_unit_to_degree: Vec<Option<f64>>,
 }
@@ -178,9 +186,7 @@ pub(crate) fn validate_supported_projected_semantics(
 /// Used to dispatch `GEODCRS` / `GeodeticCRS` between the geographic (ellipsoidal)
 /// and geocentric parse paths. Axis-direction checks belong in
 /// [`validate_supported_geocentric_semantics`], not here.
-pub(crate) fn is_cartesian_3d_coordinate_system(
-    coordinate_system: &CoordinateSystemSpec,
-) -> bool {
+pub(crate) fn is_cartesian_3d_coordinate_system(coordinate_system: &CoordinateSystemSpec) -> bool {
     coordinate_system
         .subtype
         .as_deref()
@@ -190,6 +196,7 @@ pub(crate) fn is_cartesian_3d_coordinate_system(
 
 pub(crate) fn validate_supported_geocentric_semantics(
     context: &str,
+    format: CrsTextFormat,
     prime_meridian_degrees: Option<f64>,
     linear_unit: Option<LinearUnit>,
     coordinate_system: &CoordinateSystemSpec,
@@ -210,8 +217,9 @@ pub(crate) fn validate_supported_geocentric_semantics(
         }
     }
 
-    // WKT2/PROJJSON use geocentricX/Y/Z; WKT1 GEOCCS from GDAL/PROJ uses
-    // OTHER/OTHER/NORTH for the same ECEF frame.
+    // WKT2/PROJJSON use geocentricX/Y/Z. WKT1 GEOCCS from GDAL/PROJ uses
+    // OTHER/OTHER/NORTH for the same ECEF frame, but only with Geocentric X/Y/Z
+    // names; that legacy direction pattern is not accepted in WKT2 or PROJJSON.
     const WKT2_AXES: &[AxisDirection] = &[
         AxisDirection::GeocentricX,
         AxisDirection::GeocentricY,
@@ -223,6 +231,17 @@ pub(crate) fn validate_supported_geocentric_semantics(
         AxisDirection::North,
     ];
     let expected_axes = if coordinate_system.axes == WKT1_AXES {
+        if format != CrsTextFormat::Wkt1 {
+            return Err(ParseError::UnsupportedSemantics(format!(
+                "{context} uses unsupported axis order/directions `{}`; expected geocentricX, geocentricY, geocentricZ",
+                format_axes(&coordinate_system.axes)
+            )));
+        }
+        if !wkt1_geocentric_axis_names_match(coordinate_system) {
+            return Err(ParseError::UnsupportedSemantics(format!(
+                "{context} uses the WKT1 geocentric direction pattern without Geocentric X, Geocentric Y, Geocentric Z axis names"
+            )));
+        }
         WKT1_AXES
     } else {
         WKT2_AXES
@@ -236,6 +255,13 @@ pub(crate) fn validate_supported_geocentric_semantics(
         "geocentricX, geocentricY, geocentricZ",
         AxisOrderPolicy::Strict,
     )
+}
+
+fn wkt1_geocentric_axis_names_match(coordinate_system: &CoordinateSystemSpec) -> bool {
+    coordinate_system.axis_names.len() == 3
+        && normalize_key(&coordinate_system.axis_names[0]) == "geocentricx"
+        && normalize_key(&coordinate_system.axis_names[1]) == "geocentricy"
+        && normalize_key(&coordinate_system.axis_names[2]) == "geocentricz"
 }
 
 pub(crate) fn validate_supported_vertical_coordinate_system(

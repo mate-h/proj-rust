@@ -1,6 +1,6 @@
 use proj_core::{
-    CompoundCrsDef, CrsDef, Datum, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef, LinearUnit,
-    ProjectedCrsDef, ProjectionMethod, VerticalCrsDef, VerticalCrsKind,
+    CompoundCrsDef, CrsDef, Datum, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef,
+    LinearUnit, ProjectedCrsDef, ProjectionMethod, VerticalCrsDef, VerticalCrsKind,
 };
 
 use crate::{ParseError, Result};
@@ -54,7 +54,8 @@ fn format_geographic_crs(geographic: &GeographicCrsDef) -> Result<String> {
 }
 
 fn format_geocentric_crs(geocentric: &GeocentricCrsDef) -> Result<String> {
-    let datum_epsg = authority_code(geocentric.epsg()).and_then(proj_core::lookup_datum_code_for_crs);
+    let datum_epsg =
+        authority_code(geocentric.epsg()).and_then(proj_core::lookup_datum_code_for_crs);
     let metre = linear_unit_wkt(LinearUnit::metre())?;
     let mut fields = vec![quote(wkt_name(geocentric.name(), "unnamed geocentric CRS"))];
     fields.push(format_datum(geocentric.datum(), datum_epsg)?);

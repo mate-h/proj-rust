@@ -2,14 +2,14 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::semantics::{
-    angle_unit_name_to_degree, approx_eq, linear_unit_from_meters_per_unit, linear_unit_name,
-    is_cartesian_3d_coordinate_system, normalize_key, projection_parameter_unit_kind,
-    radians_to_degrees_factor, resolve_named_datum, resolve_structured_datum_or_custom,
-    validate_supported_geocentric_semantics,
+    angle_unit_name_to_degree, approx_eq, is_cartesian_3d_coordinate_system,
+    linear_unit_from_meters_per_unit, linear_unit_name, normalize_key,
+    projection_parameter_unit_kind, radians_to_degrees_factor, resolve_named_datum,
+    resolve_structured_datum_or_custom, validate_supported_geocentric_semantics,
     validate_supported_geographic_or_ellipsoidal_height_semantics,
     validate_supported_geographic_semantics, validate_supported_projected_semantics,
     validate_supported_vertical_coordinate_system, validate_vertical_unit_matches_authority,
-    AxisDirection, AxisOrderPolicy, CoordinateSystemSpec, DatumAliasScope,
+    AxisDirection, AxisOrderPolicy, CoordinateSystemSpec, CrsTextFormat, DatumAliasScope,
     GeographicCoordinateSystemKind, ProjectionParameterUnitKind, StructuredEllipsoid,
 };
 use crate::{ParseError, Result};
@@ -106,9 +106,10 @@ fn parse_geographic_projjson(value: &Value) -> Result<CrsDef> {
 
 fn parse_geocentric_projjson(value: &Value) -> Result<CrsDef> {
     let coordinate_system = coordinate_system_from_json(value);
-    let linear_unit = projected_linear_unit(value)?;
+    let linear_unit = geocentric_linear_unit(value)?;
     validate_supported_geocentric_semantics(
         "PROJJSON geocentric CRS",
+        CrsTextFormat::ProjJson,
         prime_meridian_degrees_from_json(value),
         linear_unit,
         &coordinate_system,
@@ -785,6 +786,50 @@ fn parameter_factor_from_json(
     }
 }
 
+fn geocentric_linear_unit(value: &Value) -> Result<Option<LinearUnit>> {
+    let Some(axis) = value
+        .get("coordinate_system")
+        .and_then(|cs| cs.get("axis"))
+        .and_then(Value::as_array)
+    else {
+        return Ok(None);
+    };
+
+    let mut linear_unit: Option<LinearUnit> = None;
+    for axis in axis {
+        if !axis_declares_unit(axis) {
+            continue;
+        }
+        let Some(axis_unit) = axis_linear_unit(axis) else {
+            return Err(ParseError::UnsupportedSemantics(
+                "PROJJSON geocentric CRS declares a geocentric axis unit that does not resolve to metre"
+                    .into(),
+            ));
+        };
+
+        if let Some(existing_linear_unit) = linear_unit {
+            if !approx_eq(
+                existing_linear_unit.meters_per_unit(),
+                axis_unit.meters_per_unit(),
+            ) {
+                return Err(ParseError::UnsupportedSemantics(
+                    "PROJJSON geocentric CRS uses inconsistent geocentric axis units".into(),
+                ));
+            }
+        } else {
+            linear_unit = Some(axis_unit);
+        }
+    }
+
+    Ok(linear_unit)
+}
+
+fn axis_declares_unit(axis: &Value) -> bool {
+    axis.get("unit").is_some()
+        || axis.get("unit_conversion_factor").is_some()
+        || axis.get("conversion_factor").is_some()
+}
+
 fn projected_linear_unit(value: &Value) -> Result<Option<LinearUnit>> {
     let Some(axis) = value
         .get("coordinate_system")
@@ -859,6 +904,18 @@ fn coordinate_system_from_json(value: &Value) -> CoordinateSystemSpec {
     let axes = axis_values
         .map(|axes| axes.iter().map(axis_direction_from_json).collect())
         .unwrap_or_default();
+    let axis_names = axis_values
+        .map(|axes| {
+            axes.iter()
+                .map(|axis| {
+                    axis.get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let axis_linear_units = axis_values
         .map(|axes| axes.iter().map(axis_linear_unit).collect())
         .unwrap_or_default();
@@ -871,6 +928,7 @@ fn coordinate_system_from_json(value: &Value) -> CoordinateSystemSpec {
         subtype,
         dimension,
         axes,
+        axis_names,
         axis_linear_units,
         axis_angle_unit_to_degree,
     }
@@ -1585,6 +1643,68 @@ mod tests {
         .unwrap_err();
         assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
         assert!(err.to_string().contains("linear units other than metres"));
+    }
+
+    #[test]
+    fn rejects_geocentric_projjson_with_angular_axis_unit() {
+        let err = parse_projjson(
+            r#"{
+                "type": "GeodeticCRS",
+                "name": "custom",
+                "datum": {
+                    "type": "GeodeticReferenceFrame",
+                    "name": "World Geodetic System 1984",
+                    "ellipsoid": {
+                        "name": "WGS 84",
+                        "semi_major_axis": 6378137,
+                        "inverse_flattening": 298.257223563
+                    }
+                },
+                "coordinate_system": {
+                    "subtype": "Cartesian",
+                    "axis": [
+                        { "name": "Geocentric X", "direction": "geocentricX", "unit": "degree" },
+                        { "name": "Geocentric Y", "direction": "geocentricY", "unit": "degree" },
+                        { "name": "Geocentric Z", "direction": "geocentricZ", "unit": "degree" }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap_err();
+        assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
+        assert!(err.to_string().contains("does not resolve to metre"));
+    }
+
+    #[test]
+    fn rejects_geocentric_projjson_legacy_axis_directions() {
+        let err = parse_projjson(
+            r#"{
+                "type": "GeodeticCRS",
+                "name": "custom",
+                "datum": {
+                    "type": "GeodeticReferenceFrame",
+                    "name": "World Geodetic System 1984",
+                    "ellipsoid": {
+                        "name": "WGS 84",
+                        "semi_major_axis": 6378137,
+                        "inverse_flattening": 298.257223563
+                    }
+                },
+                "coordinate_system": {
+                    "subtype": "Cartesian",
+                    "axis": [
+                        { "name": "Geocentric X", "direction": "other", "unit": "metre" },
+                        { "name": "Geocentric Y", "direction": "other", "unit": "metre" },
+                        { "name": "Geocentric Z", "direction": "north", "unit": "metre" }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap_err();
+        assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
+        assert!(err
+            .to_string()
+            .contains("unsupported axis order/directions"));
     }
 
     #[test]

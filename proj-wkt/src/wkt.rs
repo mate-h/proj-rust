@@ -5,7 +5,7 @@ use crate::semantics::{
     validate_supported_geographic_or_ellipsoidal_height_semantics,
     validate_supported_geographic_semantics, validate_supported_projected_semantics,
     validate_supported_vertical_coordinate_system, validate_vertical_unit_matches_authority,
-    AxisDirection, AxisOrderPolicy, CoordinateSystemSpec, DatumAliasScope,
+    AxisDirection, AxisOrderPolicy, CoordinateSystemSpec, CrsTextFormat, DatumAliasScope,
     GeographicCoordinateSystemKind, ProjectionParameterUnitKind, StructuredEllipsoid,
 };
 use crate::{ParseError, Result};
@@ -290,6 +290,7 @@ fn parse_wkt_geocentric(s: &str) -> Result<CrsDef> {
     let prime_meridian_degrees = extract_prime_meridian_degrees(root_inner, 1.0);
     validate_supported_geocentric_semantics(
         "WKT geocentric CRS",
+        geocentric_wkt_format(s),
         prime_meridian_degrees,
         linear_unit,
         &coordinate_system,
@@ -297,6 +298,14 @@ fn parse_wkt_geocentric(s: &str) -> Result<CrsDef> {
 
     let datum = infer_datum_from_geographic_inner(root_inner)?;
     Ok(CrsDef::Geocentric(GeocentricCrsDef::new(0, 0, datum, "")))
+}
+
+fn geocentric_wkt_format(s: &str) -> CrsTextFormat {
+    if parse_wkt_element(s, 0).is_some_and(|(root, _, _)| root.eq_ignore_ascii_case("GEOCCS")) {
+        CrsTextFormat::Wkt1
+    } else {
+        CrsTextFormat::Wkt2
+    }
 }
 
 fn extract_geocentric_linear_unit(
@@ -1268,6 +1277,12 @@ fn extract_coordinate_system(inner: &str) -> CoordinateSystemSpec {
         }
 
         if name.eq_ignore_ascii_case("AXIS") {
+            let fields = split_top_level_fields(element_inner);
+            let axis_name = fields
+                .first()
+                .map(|field| trim_wkt_token(field).to_string())
+                .unwrap_or_default();
+            coordinate_system.axis_names.push(axis_name);
             let axis_direction = parse_axis_direction(element_inner);
             coordinate_system.axes.push(axis_direction);
             coordinate_system
@@ -1773,6 +1788,30 @@ mod tests {
         assert!(err
             .to_string()
             .contains("unsupported axis order/directions"));
+    }
+
+    #[test]
+    fn reject_wkt2_geocentric_legacy_axis_directions() {
+        let err = parse_wkt(
+            r#"GEODCRS["custom",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],CS[Cartesian,3],AXIS["Geocentric X",other,ORDER[1],LENGTHUNIT["metre",1]],AXIS["Geocentric Y",other,ORDER[2],LENGTHUNIT["metre",1]],AXIS["Geocentric Z",north,ORDER[3],LENGTHUNIT["metre",1]]]"#,
+        )
+        .unwrap_err();
+        assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
+        assert!(err
+            .to_string()
+            .contains("unsupported axis order/directions"));
+    }
+
+    #[test]
+    fn reject_wkt1_geocentric_with_swapped_axis_names() {
+        let err = parse_wkt(
+            r#"GEOCCS["custom",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1],AXIS["Geocentric Y",OTHER],AXIS["Geocentric X",OTHER],AXIS["Geocentric Z",NORTH]]"#,
+        )
+        .unwrap_err();
+        assert!(matches!(&err, ParseError::UnsupportedSemantics(_)));
+        assert!(err
+            .to_string()
+            .contains("without Geocentric X, Geocentric Y, Geocentric Z axis names"));
     }
 
     #[test]

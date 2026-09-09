@@ -1,6 +1,6 @@
 use super::Transform;
 use crate::coord::Coord3D;
-use crate::crs::{CrsDef, LinearUnit, VerticalCrsDef};
+use crate::crs::{CrsDef, LinearUnit, VerticalCrsDef, VerticalCrsKind};
 use crate::error::{Error, Result};
 use crate::grid::{GridHandle, GridRuntime};
 use crate::operation::{
@@ -311,7 +311,9 @@ pub(super) fn compile_vertical_transform(
             // Ellipsoidal height is consumed by geodetic↔ECEF framing (and any
             // intervening Helmert/geocentric-affine steps). Height units are
             // converted to metres at that boundary. Gravity-related heights
-            // remain rejected.
+            // remain rejected, as do compounds whose ellipsoidal-height datum
+            // conflicts with the horizontal datum.
+            require_matching_ellipsoidal_height_datum(source, source_vertical)?;
             Ok(VerticalTransform::None {
                 diagnostics: vertical_diagnostics(
                     VerticalTransformAction::None,
@@ -324,6 +326,7 @@ pub(super) fn compile_vertical_transform(
         (None, Some(target_vertical))
             if source.is_geocentric() && target_vertical.kind().is_ellipsoidal_height() =>
         {
+            require_matching_ellipsoidal_height_datum(target, target_vertical)?;
             Ok(VerticalTransform::None {
                 diagnostics: vertical_diagnostics(
                     VerticalTransformAction::None,
@@ -618,6 +621,23 @@ fn nonzero_vertical_epsg(vertical: &VerticalCrsDef) -> Option<u32> {
 
 fn unit_factors_match(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-12 * a.abs().max(b.abs()).max(1.0)
+}
+
+fn require_matching_ellipsoidal_height_datum(
+    horizontal_crs: &CrsDef,
+    vertical: &VerticalCrsDef,
+) -> Result<()> {
+    match vertical.kind() {
+        VerticalCrsKind::EllipsoidalHeight { datum }
+            if horizontal_crs.datum().same_datum(datum) =>
+        {
+            Ok(())
+        }
+        VerticalCrsKind::EllipsoidalHeight { .. } => Err(Error::OperationSelection(
+            "ellipsoidal height datum must match the horizontal CRS datum".into(),
+        )),
+        VerticalCrsKind::GravityRelatedHeight { .. } => Ok(()),
+    }
 }
 
 fn is_ellipsoidal_gravity_pair(source: &VerticalCrsDef, target: &VerticalCrsDef) -> bool {

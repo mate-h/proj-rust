@@ -128,6 +128,19 @@ fn ellipsoidal_height_units_are_converted_at_ecef_boundary() {
 }
 
 #[test]
+fn mismatched_ellipsoidal_height_datum_to_ecef_is_rejected() {
+    let source =
+        geographic_with_ellipsoidal_height(4269, proj_core::datum::WGS84, LinearUnit::metre());
+    let target = proj_core::lookup_epsg(4978).unwrap();
+    let message = "ellipsoidal height datum must match the horizontal CRS datum";
+
+    let forward = Transform::from_crs_defs(&source, &target).unwrap_err();
+    assert!(forward.to_string().contains(message), "got {forward}");
+    let inverse = Transform::from_crs_defs(&target, &source).unwrap_err();
+    assert!(inverse.to_string().contains(message), "got {inverse}");
+}
+
+#[test]
 fn gravity_related_height_to_ecef_is_rejected() {
     let err = Transform::new("EPSG:7415", "EPSG:4978").unwrap_err();
     assert!(
@@ -141,27 +154,18 @@ fn gravity_related_height_to_ecef_is_rejected() {
 fn convert_2d_rejects_geocentric_endpoints() {
     let to_ecef = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
     let err = to_ecef.convert((-74.006, 40.7128)).unwrap_err();
-    assert!(
-        err.to_string().contains("require convert_3d"),
-        "got {err}"
-    );
+    assert!(err.to_string().contains("require convert_3d"), "got {err}");
 
     let from_ecef = Transform::new("EPSG:4978", "EPSG:4326").unwrap();
     let err = from_ecef
         .convert((NYC_ECEF_XYZ.0, NYC_ECEF_XYZ.1))
         .unwrap_err();
-    assert!(
-        err.to_string().contains("require convert_3d"),
-        "got {err}"
-    );
+    assert!(err.to_string().contains("require convert_3d"), "got {err}");
 
     let err = to_ecef
         .convert_with_diagnostics((-74.006, 40.7128))
         .unwrap_err();
-    assert!(
-        err.to_string().contains("require convert_3d"),
-        "got {err}"
-    );
+    assert!(err.to_string().contains("require convert_3d"), "got {err}");
 }
 
 #[test]

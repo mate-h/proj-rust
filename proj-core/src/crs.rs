@@ -1418,12 +1418,7 @@ mod tests {
 
     #[test]
     fn geocentric_crs_is_geocentric() {
-        let crs = CrsDef::Geocentric(GeocentricCrsDef::new(
-            4978,
-            4326,
-            datum::WGS84,
-            "WGS 84",
-        ));
+        let crs = CrsDef::Geocentric(GeocentricCrsDef::new(4978, 4326, datum::WGS84, "WGS 84"));
         assert!(crs.is_geocentric());
         assert!(!crs.is_geographic());
         assert!(!crs.is_projected());

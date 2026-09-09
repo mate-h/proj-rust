@@ -6,8 +6,8 @@
 //! the roundtrip is asserted by tests and fuzzing.
 
 use proj_core::{
-    CompoundCrsDef, CrsDef, Datum, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef, LinearUnit,
-    ProjectedCrsDef, VerticalCrsDef, VerticalCrsKind,
+    CompoundCrsDef, CrsDef, Datum, GeocentricCrsDef, GeographicCrsDef, HorizontalCrsDef,
+    LinearUnit, ProjectedCrsDef, VerticalCrsDef, VerticalCrsKind,
 };
 
 use crate::wkt_writer::{
