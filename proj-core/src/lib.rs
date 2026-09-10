@@ -18,8 +18,10 @@
 //! The [`registry`], [`operation`], and [`grid`] modules expose the embedded
 //! operation catalog, selection metadata, and NTv2 grid-provider interfaces.
 //! Without vertical CRS components, `convert_3d` treats `z` as ellipsoidal
-//! height: datum shifts change it exactly as C PROJ's 3D-promoted CRS pairs
-//! do, and same-datum transforms preserve it. When source
+//! height. Operations declared only for the geographic 2D domain preserve it
+//! across the datum step (C PROJ `+proj=push +v_3` / `+proj=pop +v_3`);
+//! operations valid in a 3D or geocentric domain transform it. Same-datum
+//! transforms preserve it. When source
 //! and target compound CRS definitions have identical vertical components the
 //! gravity-related `z` is preserved, and it is unit-converted when both vertical
 //! components use the same vertical reference frame with different linear units.
@@ -88,10 +90,10 @@ pub use grid::{
 pub use operation::{
     AreaOfInterest, AreaOfInterestCrs, AreaOfUse, CoordinateOperation, CoordinateOperationId,
     CoordinateOperationMetadata, GeocentricAffineParams, GridCoverageMiss, GridId,
-    GridInterpolation, GridShiftDirection, OperationAccuracy, OperationMatchKind, OperationMethod,
-    OperationSelectionDiagnostics, OperationStep, OperationStepDirection, SelectionOptions,
-    SelectionPolicy, SelectionReason, SkippedOperation, SkippedOperationReason, TransformOutcome,
-    VerticalGridOffsetConvention, VerticalGridOperation, VerticalGridProvenance,
+    GridInterpolation, GridShiftDirection, OperationAccuracy, OperationDomain, OperationMatchKind,
+    OperationMethod, OperationSelectionDiagnostics, OperationStep, OperationStepDirection,
+    SelectionOptions, SelectionPolicy, SelectionReason, SkippedOperation, SkippedOperationReason,
+    TransformOutcome, VerticalGridOffsetConvention, VerticalGridOperation, VerticalGridProvenance,
     VerticalTransformAction, VerticalTransformDiagnostics,
 };
 pub use registry::{

@@ -27,11 +27,13 @@ fn explicit_helmert_operations_match_c_proj() {
         let expected = c_proj
             .convert_3d(case.input)
             .unwrap_or_else(|error| panic!("{}: C PROJ failed: {error}", case.description));
-        // These EPSG records have a geographic-2D domain. C PROJ's explicit
-        // operation object therefore preserves z, whereas proj-core's 3D API
-        // deliberately propagates the geocentric height change. Compare the
-        // shared longitude/latitude contract here.
-        let delta = ((actual.0 - expected.0).abs(), (actual.1 - expected.1).abs());
+        // These EPSG records have a geographic-2D domain, so both engines
+        // preserve z (C PROJ via push/pop v_3).
+        let delta = (
+            (actual.0 - expected.0).abs(),
+            (actual.1 - expected.1).abs(),
+            (actual.2 - expected.2).abs(),
+        );
         let reference_delta = (
             (case.expected_xy.0 - expected.0).abs(),
             (case.expected_xy.1 - expected.1).abs(),
@@ -42,7 +44,7 @@ fn explicit_helmert_operations_match_c_proj() {
             case.operation_epsg
         );
         assert!(
-            delta.0 < 1e-10 && delta.1 < 1e-10,
+            delta.0 < 1e-10 && delta.1 < 1e-10 && delta.2 < 1e-9,
             "{} (EPSG:{}): expected {expected:?}, got {actual:?}, delta {delta:?}",
             case.description,
             case.operation_epsg

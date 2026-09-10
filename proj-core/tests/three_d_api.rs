@@ -1,4 +1,6 @@
-use proj_core::{CompoundCrsDef, Coord3D, CrsDef, Datum, LinearUnit, Transform, VerticalCrsDef};
+use proj_core::{
+    CompoundCrsDef, Coord3D, CrsDef, Datum, LinearUnit, OperationDomain, Transform, VerticalCrsDef,
+};
 
 /// WGS 84 geodetic (lon/lat/h) → ECEF checkpoint for NYC from C PROJ /
 /// GeographicLib cartography on the WGS 84 ellipsoid.
@@ -220,19 +222,43 @@ fn helmert_backed_projected_transform_uses_source_height_for_xy() {
     assert!(de.abs() > 0.1, "easting delta = {de}");
     assert!(dn.abs() > 0.05, "northing delta = {dn}");
 
-    // Ellipsoidal height is rebased onto the target datum's ellipsoid: the
-    // WGS84→OSGB36(Airy) separation near London is about -46 m, and height
-    // differences are preserved to within the datum shift's height gradient.
+    // OSGB36 Helmert is geographic-2D-only, so height is preserved (C PROJ
+    // push/pop v_3) while the cart+Helmert still uses source height for XY.
     assert!(
-        (-60.0..=-30.0).contains(&ground.2),
+        (ground.2 - 0.0).abs() < 1e-12,
         "ground height = {}",
         ground.2
     );
     assert!(
-        (high.2 - ground.2 - 10_000.0).abs() < 20.0,
-        "height delta = {}",
-        high.2 - ground.2
+        (high.2 - 10_000.0).abs() < 1e-12,
+        "high height = {}",
+        high.2
     );
+}
+
+#[test]
+fn rd_new_to_ecef_preserves_amersfoort_height() {
+    // Amersfoort to WGS 84 (4) is geographic 2D (method 9607). Applying the
+    // rotation to height is ~43 m off default libproj at this point.
+    let t = Transform::new("EPSG:28992", "EPSG:4978").unwrap();
+    assert!(
+        t.selected_operation().domain == OperationDomain::Geographic2D,
+        "expected a geographic-2D-only operation, got {:?}",
+        t.selected_operation().domain
+    );
+
+    let input = (155_000.0, 463_000.0, 43.0);
+    let via_wgs84 = {
+        let to_wgs84 = Transform::new("EPSG:28992", "EPSG:4326").unwrap();
+        let to_ecef = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
+        let mid = to_wgs84.convert_3d(input).unwrap();
+        assert!((mid.2 - 43.0).abs() < 1e-9, "geographic height = {}", mid.2);
+        to_ecef.convert_3d(mid).unwrap()
+    };
+    let direct = t.convert_3d(input).unwrap();
+    assert!((direct.0 - via_wgs84.0).abs() < 1e-6);
+    assert!((direct.1 - via_wgs84.1).abs() < 1e-6);
+    assert!((direct.2 - via_wgs84.2).abs() < 1e-6);
 }
 
 #[test]

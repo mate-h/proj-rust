@@ -363,6 +363,7 @@ fn parsed_coordinate_operation(
         preferred: true,
         approximate: false,
         superseded: false,
+        domain: proj_core::OperationDomain::Geographic2D,
         method,
     }
 }

@@ -61,19 +61,17 @@ fn transform(from: u32, to: u32, x: f64, y: f64, tol: f64, desc: &str) -> Option
     })
 }
 
-/// Transform through the 3D promotions of both CRSs (`proj_crs_promote_to_3D`),
-/// so datum-shift-induced ellipsoidal height changes appear in the reference
-/// values instead of C PROJ's 2D `push/pop v_3` height passthrough.
-mod promoted_3d {
+/// Transform 3D coordinates through default C PROJ CRS-to-CRS (including
+/// `push/pop v_3` height passthrough on geographic-2D operations).
+mod live_3d {
     use std::ffi::CString;
     use std::ptr;
 
     use proj_sys::{
         proj_area_create, proj_area_destroy, proj_area_set_bbox, proj_context_create,
         proj_context_destroy, proj_context_errno, proj_create, proj_create_crs_to_crs_from_pj,
-        proj_crs_promote_to_3D, proj_destroy, proj_errno, proj_errno_string,
-        proj_normalize_for_visualization, proj_trans, PJ_CONTEXT, PJ_COORD, PJ_DIRECTION_PJ_FWD,
-        PJ_XYZT,
+        proj_destroy, proj_errno, proj_errno_string, proj_normalize_for_visualization, proj_trans,
+        PJ_CONTEXT, PJ_COORD, PJ_DIRECTION_PJ_FWD, PJ_XYZT,
     };
 
     fn error_message(err: i32) -> String {
@@ -86,10 +84,7 @@ mod promoted_3d {
         }
     }
 
-    unsafe fn create_promoted_crs(
-        ctx: *mut PJ_CONTEXT,
-        code: u32,
-    ) -> Result<*mut proj_sys::PJ, String> {
+    unsafe fn create_crs(ctx: *mut PJ_CONTEXT, code: u32) -> Result<*mut proj_sys::PJ, String> {
         let def = CString::new(format!("EPSG:{code}")).expect("EPSG code strings have no NUL");
         let crs = proj_create(ctx, def.as_ptr());
         if crs.is_null() {
@@ -98,15 +93,7 @@ mod promoted_3d {
                 error_message(proj_context_errno(ctx))
             ));
         }
-        let crs_3d = proj_crs_promote_to_3D(ctx, ptr::null(), crs);
-        proj_destroy(crs);
-        if crs_3d.is_null() {
-            return Err(format!(
-                "failed to promote CRS EPSG:{code} to 3D: {}",
-                error_message(proj_context_errno(ctx))
-            ));
-        }
-        Ok(crs_3d)
+        Ok(crs)
     }
 
     pub fn convert(from: u32, to: u32, coord: (f64, f64, f64)) -> Result<(f64, f64, f64), String> {
@@ -127,8 +114,8 @@ mod promoted_3d {
         to: u32,
         coord: (f64, f64, f64),
     ) -> Result<(f64, f64, f64), String> {
-        let from_crs = create_promoted_crs(ctx, from)?;
-        let to_crs = match create_promoted_crs(ctx, to) {
+        let from_crs = create_crs(ctx, from)?;
+        let to_crs = match create_crs(ctx, to) {
             Ok(crs) => crs,
             Err(err) => {
                 proj_destroy(from_crs);
@@ -148,7 +135,7 @@ mod promoted_3d {
         proj_destroy(to_crs);
         if raw.is_null() {
             return Err(format!(
-                "failed to create promoted 3D transform EPSG:{from}->EPSG:{to}: {}",
+                "failed to create 3D transform EPSG:{from}->EPSG:{to}: {}",
                 error_message(proj_context_errno(ctx))
             ));
         }
@@ -157,7 +144,7 @@ mod promoted_3d {
         proj_destroy(raw);
         if pj.is_null() {
             return Err(format!(
-                "failed to normalize promoted 3D transform EPSG:{from}->EPSG:{to}: {}",
+                "failed to normalize 3D transform EPSG:{from}->EPSG:{to}: {}",
                 error_message(proj_context_errno(ctx))
             ));
         }
@@ -177,16 +164,13 @@ mod promoted_3d {
         let err = proj_errno(pj);
         proj_destroy(pj);
         if err != 0 {
-            return Err(format!(
-                "promoted 3D convert failed: {}",
-                error_message(err)
-            ));
+            return Err(format!("3D convert failed: {}", error_message(err)));
         }
         Ok((trans.xyzt.x, trans.xyzt.y, trans.xyzt.z))
     }
 }
 
-/// Generate a 3D reference point through promoted 3D CRSs.
+/// Generate a 3D reference point through default C PROJ CRS-to-CRS.
 #[allow(clippy::too_many_arguments)]
 fn transform_3d(
     from: u32,
@@ -198,7 +182,7 @@ fn transform_3d(
     tol_z: f64,
     desc: &str,
 ) -> Option<ReferencePoint> {
-    let (ox, oy, oz) = match promoted_3d::convert(from, to, (x, y, z)) {
+    let (ox, oy, oz) = match live_3d::convert(from, to, (x, y, z)) {
         Ok(out) => out,
         Err(err) => {
             eprintln!("Skipping 3D reference point {desc}: {err}");
@@ -1160,9 +1144,9 @@ fn main() {
     }
 
     // =========================================================================
-    // 7. 3D points through promoted 3D CRSs. Cross-datum Helmert paths change
-    //    the ellipsoidal height and proj-core propagates it through the
-    //    horizontal pipeline; same-datum paths preserve the input height.
+    // 7. 3D points through default CRS-to-CRS. Geographic-2D Helmert steps
+    //    preserve height (push/pop v_3); same-datum and ECEF paths still use
+    //    the caller's ellipsoidal height for cart framing.
     // =========================================================================
 
     // (from_epsg, to_epsg, lon, lat, height, tolerance, tolerance_z, name)
@@ -1267,6 +1251,16 @@ fn main() {
             1e-3,
             1e-3,
             "NYC 3D UTM 18N→ECEF",
+        ),
+        (
+            28992,
+            4978,
+            155_000.0,
+            463_000.0,
+            43.0,
+            0.01,
+            0.01,
+            "Amersfoort RD New 3D→ECEF preserves height",
         ),
     ];
     for &(from_epsg, to_epsg, x, y, z, tol, tol_z, name) in three_d_points {

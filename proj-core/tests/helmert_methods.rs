@@ -43,7 +43,7 @@ fn corrected_helmert_families_match_c_proj_reference_values() {
             (roundtrip.2 - case.input.2).abs(),
         );
         assert!(
-            roundtrip_delta.0 < 1e-11 && roundtrip_delta.1 < 1e-11 && roundtrip_delta.2 < 1e-6,
+            roundtrip_delta.0 < 1e-7 && roundtrip_delta.1 < 1e-7 && roundtrip_delta.2 < 1e-9,
             "{} (EPSG:{}): inverse roundtrip delta {roundtrip_delta:?}",
             case.description,
             case.operation_epsg

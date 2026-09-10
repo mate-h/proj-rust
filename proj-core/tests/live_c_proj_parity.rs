@@ -5,7 +5,7 @@ mod c_proj_ffi;
 
 use c_proj_ffi::CProjTransform;
 use proj::Proj;
-use proj_core::{AreaOfInterest, Coord, SelectionOptions, Transform};
+use proj_core::Transform;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -39,18 +39,13 @@ fn load_corpus() -> Vec<ReferencePoint> {
     serde_json::from_str(&data).unwrap_or_else(|e| panic!("failed to parse {path}: {e}"))
 }
 
-fn geographic_aoi(x: f64, y: f64) -> Option<(f64, f64)> {
-    ((-180.0..=180.0).contains(&x) && (-90.0..=90.0).contains(&y)).then_some((x, y))
-}
-
 /// Live C PROJ result: XY, plus Z when the corpus record is 3D.
 fn live_c_proj(point: &ReferencePoint) -> Result<(f64, f64, Option<f64>), String> {
     let from = format!("EPSG:{}", point.from_epsg);
     let to = format!("EPSG:{}", point.to_epsg);
     if point.is_3d() {
         let z = point.input_z.expect("3D record has input_z");
-        let aoi = geographic_aoi(point.input_x, point.input_y);
-        CProjTransform::new_promoted_3d(point.from_epsg, point.to_epsg, aoi)
+        CProjTransform::new_known_crs(&from, &to)
             .and_then(|proj| proj.convert_3d((point.input_x, point.input_y, z)))
             .map(|(x, y, z)| (x, y, Some(z)))
             .map_err(|e| format!("C PROJ convert_3d failed for {from}->{to}: {e}"))
@@ -64,19 +59,7 @@ fn live_c_proj(point: &ReferencePoint) -> Result<(f64, f64, Option<f64>), String
 }
 
 fn rust_transform(point: &ReferencePoint) -> proj_core::Result<Transform> {
-    if !point.is_3d() {
-        return Transform::from_epsg(point.from_epsg, point.to_epsg);
-    }
-
-    let mut options = SelectionOptions::default();
-    if let Some((x, y)) = geographic_aoi(point.input_x, point.input_y) {
-        options.area_of_interest = Some(AreaOfInterest::source_crs_point(Coord::new(x, y)));
-    }
-    Transform::with_selection_options(
-        &format!("EPSG:{}", point.from_epsg),
-        &format!("EPSG:{}", point.to_epsg),
-        options,
-    )
+    Transform::from_epsg(point.from_epsg, point.to_epsg)
 }
 
 fn rust_convert(

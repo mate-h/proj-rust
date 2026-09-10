@@ -39,9 +39,12 @@ Coordinates use CRS-native units:
 - Geographic CRS coordinates are longitude/latitude in degrees.
 - Projected CRS coordinates use the CRS linear unit, such as metres or US survey feet.
 - Without explicit vertical components, `convert_3d()` treats `z` as
-  ellipsoidal height: projection-only paths preserve it, while horizontal
-  datum shifts can change it. Explicit vertical components preserve, convert,
-  or transform `z` according to their declared reference frames and units.
+  ellipsoidal height. Projection-only paths preserve it. Horizontal datum
+  shifts declared only for the geographic 2D domain also preserve it (the
+  same `push`/`pop` `v_3` behaviour as default libproj); operations valid in
+  a 3D or geocentric domain transform it. Explicit vertical components
+  preserve, convert, or transform `z` according to their declared reference
+  frames and units.
 
 Strict transform constructors reject a compound-to-2D CRS pair because that
 would silently discard an explicit vertical reference. For an intentionally

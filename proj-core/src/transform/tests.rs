@@ -6,8 +6,8 @@ use crate::crs::{
 use crate::datum::{self, DatumToWgs84};
 use crate::grid::{FilesystemGridProvider, GridDefinition, GridError, GridFormat};
 use crate::operation::{
-    AreaOfInterest, CoordinateOperation, GridId, GridInterpolation, OperationMatchKind,
-    OperationMethod, SelectionPolicy, SelectionReason, SkippedOperationReason,
+    AreaOfInterest, CoordinateOperation, GridId, GridInterpolation, OperationDomain,
+    OperationMatchKind, OperationMethod, SelectionPolicy, SelectionReason, SkippedOperationReason,
     VerticalGridOffsetConvention, VerticalGridOperation, VerticalTransformAction,
 };
 use crate::selector::SelectedOperationKind;
@@ -41,6 +41,7 @@ fn custom_nad27_to_wgs84_operation(name: &str) -> CoordinateOperation {
         preferred: true,
         approximate: false,
         superseded: false,
+        domain: crate::operation::OperationDomain::Geographic2D,
         method: OperationMethod::Helmert {
             params: *datum::NAD27.helmert_to_wgs84().unwrap(),
         },
@@ -450,10 +451,11 @@ fn paris_ed50_aoi_selects_matching_most_accurate_operation() {
     assert_eq!(t.selected_operation().id, Some(CoordinateOperationId(1311)));
 
     let actual = t.convert_3d((2.3522, 48.8566, 100.0)).unwrap();
-    let expected = (2.3509296022605057, 48.855688571414994, 152.828982709907);
+    let expected = (2.3509296022605057, 48.855688571414994, 100.0);
     assert!((actual.0 - expected.0).abs() < 1e-12);
     assert!((actual.1 - expected.1).abs() < 1e-12);
     assert!((actual.2 - expected.2).abs() < 1e-9);
+    assert_eq!(t.selected_operation().domain, OperationDomain::Geographic2D);
 }
 
 #[test]
@@ -1982,9 +1984,9 @@ fn cloned_transform_produces_identical_results() {
 
 #[test]
 fn geoid_grid_with_helmert_horizontal_fails_closed() {
-    // A geoid-grid vertical transform composed with a Helmert horizontal
-    // pipeline would drop the datum shift's ellipsoidal-height change;
-    // construction must reject it with a typed error.
+    // A geoid-grid vertical transform composed with a 3D-domain Helmert
+    // would drop the datum shift's ellipsoidal-height change; construction
+    // must reject it with a typed error.
     let grid_root = write_test_gtx(&[-30.0, -30.0, -30.0, -30.0]);
     let source = registry::lookup_epsg(4979).unwrap();
     let target_horizontal = GeographicCrsDef::new(0, datum::OSGB36, "custom OSGB36 geographic");
@@ -2008,6 +2010,7 @@ fn geoid_grid_with_helmert_horizontal_fails_closed() {
         preferred: true,
         approximate: false,
         superseded: false,
+        domain: crate::operation::OperationDomain::Geographic3D,
         method: OperationMethod::Helmert {
             params: datum::OSGB36.helmert_to_wgs84().unwrap().inverse(),
         },

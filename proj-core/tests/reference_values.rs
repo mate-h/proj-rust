@@ -13,8 +13,8 @@
 //! - Roundtrip verification (forward then inverse)
 //! - Edge cases (poles, antimeridian, equator, projection zone boundaries,
 //!   near-pole inverses, wrong-hemisphere polar stereographic inputs)
-//! - 3D points through promoted 3D CRSs, including cross-datum ellipsoidal
-//!   height changes
+//! - 3D points through default CRS-to-CRS (geographic-2D operations preserve
+//!   height; same-datum and ECEF paths still use ellipsoidal height)
 
 use proj_core::{lookup_epsg, AreaOfInterest, Coord, SelectionOptions, Transform};
 use serde::Deserialize;
@@ -234,7 +234,7 @@ fn corpus_has_adequate_coverage() {
     assert!(from_epsgs.contains(&3857), "missing 3857→4326 inverse");
     assert!(from_epsgs.contains(&3413), "missing 3413→4326 inverse");
 
-    // Verify 3D coverage (promoted 3D CRS references)
+    // Verify 3D coverage (default CRS-to-CRS, including ECEF)
     assert!(
         corpus.iter().any(|r| r.input_z.is_some()),
         "missing 3D reference points"
@@ -244,6 +244,12 @@ fn corpus_has_adequate_coverage() {
             .iter()
             .any(|r| r.from_epsg == 4978 || r.to_epsg == 4978),
         "missing geocentric ECEF (EPSG:4978) reference points"
+    );
+    assert!(
+        corpus
+            .iter()
+            .any(|r| r.from_epsg == 28992 && r.to_epsg == 4978 && r.input_z.is_some()),
+        "missing RD New → ECEF height-passthrough reference point"
     );
     // Verify near-pole and wrong-hemisphere edge coverage
     assert!(

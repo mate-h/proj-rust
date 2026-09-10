@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- breaking: preserve ellipsoidal height across geographic-2D-only datum operations (`+proj=push +v_3` / `+proj=pop +v_3` in libproj) instead of letting Helmert rotation change it; `CoordinateOperation` records the declared CRS domain as `OperationDomain`
 - breaking: add `CrsDef::Geocentric` / `GeocentricCrsDef` and bump the embedded registry format to v11 with a geocentric CRS section; exhaustive matches on `CrsDef` must handle the new variant
 - expose WGS 84 ECEF (`EPSG:4978`) and other same-ellipsoid geocentric CRS records from the generated registry, with geodetic ↔ ECEF transforms via `Transform::new` / `convert_3d`
 - add WKT1 `GEOCCS`, WKT2 geocentric `GEODCRS`, and PROJJSON Cartesian `GeodeticCRS` serialize/parse support for geocentric CRS definitions; declared geocentric axis units must resolve to metre, and the WKT1 `other, other, north` axis pattern is accepted only on `GEOCCS` with `Geocentric X/Y/Z` names

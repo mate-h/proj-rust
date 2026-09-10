@@ -133,8 +133,8 @@ proptest! {
 
         prop_assert!((lon2 - lon).abs() < 1e-5, "lon: {lon2} vs {lon}");
         prop_assert!((lat2 - lat).abs() < 1e-5, "lat: {lat2} vs {lat}");
-        // The ellipsoidal height passes through geocentric datum math in both
-        // directions, so the roundtrip holds to micrometers, not exactly.
-        prop_assert!((h2 - h).abs() < 1e-6, "h: {h2} vs {h}");
+        // Geographic-2D NAD27 operations restore height, so the roundtrip
+        // should match the input exactly aside from XY residual.
+        prop_assert!((h2 - h).abs() < 1e-9, "h: {h2} vs {h}");
     }
 }

@@ -6,8 +6,8 @@ use crate::ellipsoid::Ellipsoid;
 use crate::grid::{GridDefinition, GridFormat};
 use crate::operation::{
     AreaOfUse, CoordinateOperation, CoordinateOperationId, GeocentricAffineParams, GridId,
-    GridInterpolation, GridShiftDirection, OperationAccuracy, OperationMethod, OperationStep,
-    OperationStepDirection, VerticalGridOffsetConvention, VerticalGridOperation,
+    GridInterpolation, GridShiftDirection, OperationAccuracy, OperationDomain, OperationMethod,
+    OperationStep, OperationStepDirection, VerticalGridOffsetConvention, VerticalGridOperation,
 };
 use smallvec::SmallVec;
 use std::collections::{BTreeMap, HashMap};
@@ -449,6 +449,7 @@ fn parse_db() -> RegistryDb {
                 preferred: flags & FLAG_PREFERRED != 0,
                 approximate: flags & FLAG_APPROXIMATE != 0,
                 superseded: flags & FLAG_SUPERSEDED != 0,
+                domain: operation_domain(source_crs_epsg, target_crs_epsg, &geographic_crs),
                 method,
             },
         );
@@ -586,6 +587,22 @@ fn parse_db() -> RegistryDb {
         operation_ids_by_crs_pair,
         operation_ids_by_datum_pair,
     }
+}
+
+/// Registry operations are generated from geographic 2D source/target CRS.
+/// Geographic 3D CRS are stored as compounds, so a match there records a 3D
+/// domain for when those operations are added.
+fn operation_domain(
+    source_crs_epsg: u32,
+    target_crs_epsg: u32,
+    geographic_crs: &BTreeMap<u32, GeographicRecord>,
+) -> OperationDomain {
+    for code in [source_crs_epsg, target_crs_epsg] {
+        if code != 0 && geographic_crs.contains_key(&code) {
+            return OperationDomain::Geographic2D;
+        }
+    }
+    OperationDomain::Geographic2D
 }
 
 fn decode_projection_method(method_id: u8, params: [f64; 7]) -> ProjectionMethod {

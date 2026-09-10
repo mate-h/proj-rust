@@ -2170,7 +2170,7 @@
     "input_z": 250.0,
     "expected_x": -90.00010145914432,
     "expected_y": 44.99998434732718,
-    "expected_z": 211.95752871129662,
+    "expected_z": 250.0,
     "tolerance": 0.001,
     "tolerance_z": 0.01,
     "description": "US Midwest 3D NAD27→WGS84"
@@ -2183,7 +2183,7 @@
     "input_z": 45.0,
     "expected_x": -0.12940628890775663,
     "expected_y": 51.50791031608465,
-    "expected_z": 91.1245431266725,
+    "expected_z": 45.0,
     "tolerance": 0.001,
     "tolerance_z": 0.01,
     "description": "London 3D OSGB36→WGS84"
@@ -2196,7 +2196,7 @@
     "input_z": 100.0,
     "expected_x": 2.3509296022605057,
     "expected_y": 48.855688571414994,
-    "expected_z": 152.828982709907,
+    "expected_z": 100.0,
     "tolerance": 0.001,
     "tolerance_z": 0.01,
     "description": "Paris 3D ED50→WGS84"
@@ -2209,7 +2209,7 @@
     "input_z": 95.0,
     "expected_x": -0.1261935506970518,
     "expected_y": 51.506889599129934,
-    "expected_z": 48.87831049412489,
+    "expected_z": 95.0,
     "tolerance": 0.001,
     "tolerance_z": 0.01,
     "description": "London 3D WGS84→OSGB36 reverse"
@@ -2222,7 +2222,7 @@
     "input_z": 45.0,
     "expected_x": 530028.7460638412,
     "expected_y": 180380.09468350263,
-    "expected_z": -1.122713966295123,
+    "expected_z": 45.0,
     "tolerance": 0.01,
     "tolerance_z": 0.01,
     "description": "London 3D WGS84→British National Grid"
@@ -2278,5 +2278,18 @@
     "tolerance": 0.001,
     "tolerance_z": 0.001,
     "description": "NYC 3D UTM 18N→ECEF"
+  },
+  {
+    "from_epsg": 28992,
+    "to_epsg": 4978,
+    "input_x": 155000.0,
+    "input_y": 463000.0,
+    "input_z": 43.0,
+    "expected_x": 3904045.96063947,
+    "expected_y": 368161.29171226,
+    "expected_z": 5013448.77743512,
+    "tolerance": 0.01,
+    "tolerance_z": 0.01,
+    "description": "Amersfoort RD New 3D→ECEF preserves height"
   }
 ]

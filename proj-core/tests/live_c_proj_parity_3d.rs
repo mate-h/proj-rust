@@ -15,7 +15,7 @@ struct ReferencePoint3D {
     description: &'static str,
 }
 
-fn cases() -> [ReferencePoint3D; 10] {
+fn cases() -> [ReferencePoint3D; 11] {
     [
         ReferencePoint3D {
             from_epsg: 4326,
@@ -33,24 +33,29 @@ fn cases() -> [ReferencePoint3D; 10] {
             tolerance_z: 1e-9,
             description: "Web Mercator 3D to WGS84",
         },
-        // NAD27 is not used here: C PROJ picks a different registry
-        // operation for the promoted-3D NAD27 pair in the US Midwest (the
-        // corpus documents that divergence as pending); OSGB36 exercises the
-        // same promoted-3D datum-shift height path with selection parity.
+        // Geographic-2D Helmert steps preserve height (push/pop v_3).
         ReferencePoint3D {
             from_epsg: 4277,
             to_epsg: 4326,
             input: (-0.1278, 51.5074, 45.0),
             tolerance_xy: 0.001,
-            tolerance_z: 0.01,
+            tolerance_z: 1e-9,
             description: "OSGB36 3D to WGS84",
+        },
+        ReferencePoint3D {
+            from_epsg: 28992,
+            to_epsg: 4978,
+            input: (155_000.0, 463_000.0, 43.0),
+            tolerance_xy: 0.01,
+            tolerance_z: 0.01,
+            description: "RD New to ECEF preserves Amersfoort height",
         },
         ReferencePoint3D {
             from_epsg: 4326,
             to_epsg: 27700,
             input: (-0.1278, 51.5074, 45.0),
             tolerance_xy: 1.0,
-            tolerance_z: 0.05,
+            tolerance_z: 1e-9,
             description: "WGS84 3D to British National Grid",
         },
         ReferencePoint3D {
@@ -58,7 +63,7 @@ fn cases() -> [ReferencePoint3D; 10] {
             to_epsg: 27700,
             input: (-0.1278, 51.5074, 10_000.0),
             tolerance_xy: 0.01,
-            tolerance_z: 0.05,
+            tolerance_z: 1e-9,
             description: "WGS84 3D to British National Grid with high ellipsoidal height",
         },
         ReferencePoint3D {
@@ -66,7 +71,7 @@ fn cases() -> [ReferencePoint3D; 10] {
             to_epsg: 4326,
             input: (530000.0, 180000.0, 45.0),
             tolerance_xy: 1e-6,
-            tolerance_z: 0.05,
+            tolerance_z: 1e-9,
             description: "British National Grid 3D to WGS84",
         },
         ReferencePoint3D {
@@ -119,13 +124,16 @@ fn proj_core_matches_live_c_proj_for_3d_cases() {
                 case.description, case.from_epsg, case.to_epsg
             )
         });
-        let c_transform = CProjTransform::new_promoted_3d(case.from_epsg, case.to_epsg, None)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "{}: failed to create C PROJ transform EPSG:{}->EPSG:{}: {e}",
-                    case.description, case.from_epsg, case.to_epsg
-                )
-            });
+        let c_transform = CProjTransform::new_known_crs(
+            &format!("EPSG:{}", case.from_epsg),
+            &format!("EPSG:{}", case.to_epsg),
+        )
+        .unwrap_or_else(|e| {
+            panic!(
+                "{}: failed to create C PROJ transform EPSG:{}->EPSG:{}: {e}",
+                case.description, case.from_epsg, case.to_epsg
+            )
+        });
 
         let expected = c_transform.convert_3d(case.input).unwrap_or_else(|e| {
             panic!(
