@@ -119,7 +119,7 @@ fn proj_core_matches_live_c_proj_for_3d_cases() {
                 case.description, case.from_epsg, case.to_epsg
             )
         });
-        let c_transform = CProjTransform::new_promoted_3d(case.from_epsg, case.to_epsg)
+        let c_transform = CProjTransform::new_promoted_3d(case.from_epsg, case.to_epsg, None)
             .unwrap_or_else(|e| {
                 panic!(
                     "{}: failed to create C PROJ transform EPSG:{}->EPSG:{}: {e}",

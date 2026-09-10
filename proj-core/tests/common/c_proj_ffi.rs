@@ -4,11 +4,11 @@
 #![allow(dead_code)]
 
 use proj_sys::{
-    proj_area_create, proj_area_destroy, proj_context_create, proj_context_destroy,
-    proj_context_errno, proj_create, proj_create_crs_to_crs, proj_create_crs_to_crs_from_pj,
-    proj_crs_promote_to_3D, proj_destroy, proj_errno, proj_errno_reset, proj_errno_string,
-    proj_normalize_for_visualization, proj_trans, PJ_CONTEXT, PJ_COORD, PJ_DIRECTION_PJ_FWD,
-    PJ_XYZT,
+    proj_area_create, proj_area_destroy, proj_area_set_bbox, proj_context_create,
+    proj_context_destroy, proj_context_errno, proj_create, proj_create_crs_to_crs,
+    proj_create_crs_to_crs_from_pj, proj_crs_promote_to_3D, proj_destroy, proj_errno,
+    proj_errno_reset, proj_errno_string, proj_normalize_for_visualization, proj_trans, PJ_CONTEXT,
+    PJ_COORD, PJ_DIRECTION_PJ_FWD, PJ_XYZT,
 };
 use std::ffi::{CStr, CString};
 use std::ptr;
@@ -102,7 +102,11 @@ impl CProjTransform {
     /// Transform through the 3D promotions of both CRSs
     /// (`proj_crs_promote_to_3D`), so datum-shift-induced ellipsoidal height
     /// changes appear instead of the 2D `push/pop v_3` height passthrough.
-    pub fn new_promoted_3d(from_epsg: u32, to_epsg: u32) -> Result<Self, String> {
+    pub fn new_promoted_3d(
+        from_epsg: u32,
+        to_epsg: u32,
+        area_point: Option<(f64, f64)>,
+    ) -> Result<Self, String> {
         unsafe {
             let ctx = proj_context_create();
             if ctx.is_null() {
@@ -126,6 +130,9 @@ impl CProjTransform {
             };
 
             let area = proj_area_create();
+            if let Some((x, y)) = area_point {
+                proj_area_set_bbox(area, x, y, x, y);
+            }
             let raw = proj_create_crs_to_crs_from_pj(ctx, from_crs, to_crs, area, ptr::null());
             proj_area_destroy(area);
             proj_destroy(from_crs);
