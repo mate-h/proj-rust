@@ -18,9 +18,10 @@
 //! The [`registry`], [`operation`], and [`grid`] modules expose the embedded
 //! operation catalog, selection metadata, and NTv2 grid-provider interfaces.
 //! Without vertical CRS components, `convert_3d` treats `z` as ellipsoidal
-//! height. Operations declared only for the geographic 2D domain preserve it
-//! across the datum step (C PROJ `+proj=push +v_3` / `+proj=pop +v_3`);
-//! operations valid in a 3D or geocentric domain transform it. Same-datum
+//! height. Horizontal-only operations preserve it across the datum step
+//! when at least one requested endpoint is 2D (C PROJ `+proj=push +v_3` /
+//! `+proj=pop +v_3`). Both-3D or both-geocentric pairs, and
+//! `IncludesHeight` operations, apply the full 3D Helmert. Same-datum
 //! transforms preserve it. When source
 //! and target compound CRS definitions have identical vertical components the
 //! gravity-related `z` is preserved, and it is unit-converted when both vertical

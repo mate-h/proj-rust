@@ -1,5 +1,6 @@
 use crate::datum::Datum;
 use crate::error::{Error, Result};
+use crate::operation::OperationDomain;
 
 /// A coordinate system's projected linear unit.
 ///
@@ -137,6 +138,29 @@ impl CrsDef {
     /// Returns true if this is a compound horizontal + vertical CRS.
     pub fn is_compound(&self) -> bool {
         matches!(self, CrsDef::Compound(_))
+    }
+
+    /// True when this is a geographic or projected CRS without an explicit
+    /// vertical component. Geocentric CRS and compounds are three-dimensional.
+    pub fn is_horizontal_2d(&self) -> bool {
+        matches!(self, CrsDef::Geographic(_) | CrsDef::Projected(_))
+    }
+
+    /// EPSG operation domain implied by this CRS type.
+    ///
+    /// Geocentric CRS and ellipsoidal-height compounds are three-dimensional.
+    /// Gravity-related compounds stay horizontal-only: Helmert still applies
+    /// to the horizontal component only.
+    pub fn operation_domain(&self) -> OperationDomain {
+        if self.is_geocentric()
+            || self
+                .vertical_crs()
+                .is_some_and(|vertical| vertical.kind().is_ellipsoidal_height())
+        {
+            OperationDomain::IncludesHeight
+        } else {
+            OperationDomain::HorizontalOnly
+        }
     }
 
     /// Return the geographic horizontal component, when present.
@@ -1412,6 +1436,7 @@ mod tests {
     fn geographic_crs_is_geographic() {
         let crs = CrsDef::Geographic(GeographicCrsDef::new(4326, datum::WGS84, "WGS 84"));
         assert!(crs.is_geographic());
+        assert!(crs.is_horizontal_2d());
         assert!(!crs.is_projected());
         assert_eq!(crs.epsg(), 4326);
     }
@@ -1420,6 +1445,7 @@ mod tests {
     fn geocentric_crs_is_geocentric() {
         let crs = CrsDef::Geocentric(GeocentricCrsDef::new(4978, 4326, datum::WGS84, "WGS 84"));
         assert!(crs.is_geocentric());
+        assert!(!crs.is_horizontal_2d());
         assert!(!crs.is_geographic());
         assert!(!crs.is_projected());
         assert_eq!(crs.epsg(), 4978);
@@ -1436,6 +1462,7 @@ mod tests {
             "WGS 84 / Pseudo-Mercator",
         ));
         assert!(crs.is_projected());
+        assert!(crs.is_horizontal_2d());
         assert!(!crs.is_geographic());
         assert_eq!(crs.epsg(), 3857);
     }
@@ -1457,6 +1484,7 @@ mod tests {
         )));
 
         assert!(crs.is_compound());
+        assert!(!crs.is_horizontal_2d());
         assert!(crs.is_geographic());
         assert!(!crs.is_projected());
         assert_eq!(crs.epsg(), 4979);

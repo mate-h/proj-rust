@@ -27,8 +27,8 @@ pub(super) struct CompiledOperationPipeline {
     pub(super) target_xy_units: PipelineTargetXyUnits,
     /// True when the steps change ellipsoidal height (unwrapped
     /// Helmert/geocentric datum math or a geocentric CRS endpoint).
-    /// Geographic-2D-only operations wrap those steps in push/pop so they
-    /// do not count.
+    /// Horizontal-only operations wrap those steps in push/pop when a
+    /// requested endpoint is 2D, so they do not count.
     pub(super) transforms_ellipsoidal_height: bool,
 }
 
@@ -316,7 +316,8 @@ fn require_xy_pipeline_supported(pipeline: &CompiledOperationPipeline) -> Result
 /// Like [`execute_pipeline_xy`] but keeps the pipeline's `z` output. `z` is
 /// in meters throughout; the x/y unit adapters do not touch it. Callers
 /// convert native ellipsoidal-height units at a geocentric CRS boundary.
-/// Geographic-2D-only Helmert steps restore the input height via push/pop.
+/// Horizontal-only Helmert steps restore the input height via push/pop
+/// when a requested endpoint is 2D.
 pub(super) fn execute_pipeline_xyz(
     pipeline: &CompiledOperationPipeline,
     c: Coord3D,
@@ -417,8 +418,8 @@ pub(super) fn compile_pipeline(
 
     // Geocentric endpoints always own height via cart framing even when
     // adjacent geodetic↔ECEF pairs cancel (for example identity ECEF↔ECEF).
-    // Helmert/cart steps inside a 2D push/pop pair restore height and do not
-    // count as transforming it.
+    // Helmert/cart steps inside a push/pop pair (2D-domain method with a 2D
+    // requested endpoint) restore height and do not count as transforming it.
     let transforms_ellipsoidal_height = source.is_geocentric()
         || target.is_geocentric()
         || steps_transform_ellipsoidal_height(&steps);
@@ -505,7 +506,7 @@ fn compile_operation(
 ) -> Result<()> {
     let (source_geo, target_geo) =
         resolve_operation_geographic_pair(operation, direction, requested_pair)?;
-    let preserve_height = operation.domain == OperationDomain::Geographic2D;
+    let preserve_height = preserve_ellipsoidal_height(operation.domain, requested_pair);
     match (&operation.method, direction) {
         (OperationMethod::Identity, _) => {}
         (OperationMethod::Helmert { params }, OperationStepDirection::Forward) => {
@@ -622,7 +623,7 @@ fn compile_operation(
                 let child = registry::lookup_operation(step.operation_id).ok_or_else(|| {
                     Error::UnknownOperation(format!("unknown operation id {}", step.operation_id.0))
                 })?;
-                compile_operation(&child, step.direction, None, grid_runtime, steps)?;
+                compile_operation(&child, step.direction, requested_pair, grid_runtime, steps)?;
             }
         }
         (OperationMethod::Concatenated { steps: child_steps }, OperationStepDirection::Reverse) => {
@@ -630,7 +631,13 @@ fn compile_operation(
                 let child = registry::lookup_operation(step.operation_id).ok_or_else(|| {
                     Error::UnknownOperation(format!("unknown operation id {}", step.operation_id.0))
                 })?;
-                compile_operation(&child, step.direction.inverse(), None, grid_runtime, steps)?;
+                compile_operation(
+                    &child,
+                    step.direction.inverse(),
+                    requested_pair,
+                    grid_runtime,
+                    steps,
+                )?;
             }
         }
         (OperationMethod::Projection { .. }, _) | (OperationMethod::AxisUnitNormalize, _) => {
@@ -640,6 +647,19 @@ fn compile_operation(
         }
     }
     Ok(())
+}
+
+/// libproj wraps Helmert in `push`/`pop` `v_3` only when the operation is
+/// horizontal-only and at least one requested endpoint is 2D. Two 3D or
+/// geocentric endpoints apply the full 3D Helmert even if the registry record
+/// is a 2D method.
+fn preserve_ellipsoidal_height(
+    domain: OperationDomain,
+    requested_pair: Option<(&CrsDef, &CrsDef)>,
+) -> bool {
+    domain == OperationDomain::HorizontalOnly
+        && requested_pair
+            .is_some_and(|(source, target)| source.is_horizontal_2d() || target.is_horizontal_2d())
 }
 
 fn compile_geocentric_sandwich(
@@ -871,6 +891,37 @@ mod framing_tests {
         let input = Coord3D::new(0.1, 0.9, 43.0);
         let output = execute_steps(&steps, input).unwrap();
         assert!((output.z - 43.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn push_pop_only_when_a_requested_endpoint_is_2d() {
+        let geographic = CrsDef::Geographic(crate::crs::GeographicCrsDef::new(
+            4326,
+            crate::datum::WGS84,
+            "WGS 84",
+        ));
+        let geocentric = CrsDef::Geocentric(crate::crs::GeocentricCrsDef::new(
+            4978,
+            4326,
+            crate::datum::WGS84,
+            "WGS 84",
+        ));
+        assert!(preserve_ellipsoidal_height(
+            OperationDomain::HorizontalOnly,
+            Some((&geographic, &geocentric)),
+        ));
+        assert!(!preserve_ellipsoidal_height(
+            OperationDomain::HorizontalOnly,
+            Some((&geocentric, &geocentric)),
+        ));
+        assert!(!preserve_ellipsoidal_height(
+            OperationDomain::IncludesHeight,
+            Some((&geographic, &geographic)),
+        ));
+        assert!(!preserve_ellipsoidal_height(
+            OperationDomain::HorizontalOnly,
+            None,
+        ));
     }
 
     #[test]

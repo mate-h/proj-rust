@@ -653,7 +653,7 @@ mod tests {
             preferred: true,
             approximate: false,
             superseded: false,
-            domain: crate::operation::OperationDomain::Geographic2D,
+            domain: crate::operation::OperationDomain::HorizontalOnly,
             method: crate::operation::OperationMethod::Identity,
         };
         let options = SelectionOptions::new().with_coordinate_operation(custom);

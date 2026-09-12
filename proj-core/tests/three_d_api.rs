@@ -1,5 +1,6 @@
 use proj_core::{
-    CompoundCrsDef, Coord3D, CrsDef, Datum, LinearUnit, OperationDomain, Transform, VerticalCrsDef,
+    CompoundCrsDef, Coord3D, CoordinateOperationId, CrsDef, Datum, LinearUnit, OperationDomain,
+    Transform, VerticalCrsDef,
 };
 
 /// WGS 84 geodetic (lon/lat/h) → ECEF checkpoint for NYC from C PROJ /
@@ -56,14 +57,19 @@ fn cross_datum_ellipsoidal_3d_to_ecef() {
         compound.vertical_diagnostics()
     );
 
-    // Same horizontal datum without a compound vertical CRS should match:
-    // convert_3d treats z as ellipsoidal height into ECEF.
-    let geographic = Transform::new("EPSG:4258", "EPSG:4978").unwrap();
+    // Both-3D/geocentric endpoints apply the Helmert in 3D, so ETRS89
+    // geographic 3D → WGS 84 ECEF matches the geocentric ETRS89 path.
     let from_compound = compound.convert_3d(NYC_LON_LAT_H).unwrap();
-    let from_geographic = geographic.convert_3d(NYC_LON_LAT_H).unwrap();
-    assert!((from_compound.0 - from_geographic.0).abs() < 1e-9);
-    assert!((from_compound.1 - from_geographic.1).abs() < 1e-9);
-    assert!((from_compound.2 - from_geographic.2).abs() < 1e-9);
+    let via_etrs89_ecef = {
+        let to_etrs89 = Transform::new("EPSG:4937", "EPSG:4936").unwrap();
+        let to_wgs84 = Transform::new("EPSG:4936", "EPSG:4978").unwrap();
+        to_wgs84
+            .convert_3d(to_etrs89.convert_3d(NYC_LON_LAT_H).unwrap())
+            .unwrap()
+    };
+    assert!((from_compound.0 - via_etrs89_ecef.0).abs() < 1e-6);
+    assert!((from_compound.1 - via_etrs89_ecef.1).abs() < 1e-6);
+    assert!((from_compound.2 - via_etrs89_ecef.2).abs() < 1e-6);
 
     // True cross-datum: NAD27 geographic → ECEF matches the chained path.
     let nad27_direct = Transform::new("EPSG:4267", "EPSG:4978").unwrap();
@@ -237,13 +243,34 @@ fn helmert_backed_projected_transform_uses_source_height_for_xy() {
 }
 
 #[test]
+fn wgs72_geocentric_to_wgs84_applies_full_3d_helmert() {
+    // Both endpoints are geocentric, so Helmert runs in 3D (no push/pop).
+    let ecef = Transform::new("EPSG:4322", "EPSG:4984")
+        .unwrap()
+        .convert_3d((0.0, 51.0, 100.0))
+        .unwrap();
+    let wgs84 = Transform::from_operation(CoordinateOperationId(1238), "EPSG:4984", "EPSG:4978")
+        .unwrap()
+        .convert_3d(ecef)
+        .unwrap();
+    let (_, _, h) = Transform::new("EPSG:4978", "EPSG:4326")
+        .unwrap()
+        .convert_3d(wgs84)
+        .unwrap();
+    assert!(
+        (h - 100.0).abs() > 0.1,
+        "3D Helmert should change height, got {h}"
+    );
+}
+
+#[test]
 fn rd_new_to_ecef_preserves_amersfoort_height() {
     // Amersfoort to WGS 84 (4) is geographic 2D (method 9607). Applying the
     // rotation to height is ~43 m off default libproj at this point.
     let t = Transform::new("EPSG:28992", "EPSG:4978").unwrap();
     assert!(
-        t.selected_operation().domain == OperationDomain::Geographic2D,
-        "expected a geographic-2D-only operation, got {:?}",
+        t.selected_operation().domain == OperationDomain::HorizontalOnly,
+        "expected a horizontal-only operation, got {:?}",
         t.selected_operation().domain
     );
 

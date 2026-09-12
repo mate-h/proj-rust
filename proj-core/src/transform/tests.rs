@@ -41,7 +41,7 @@ fn custom_nad27_to_wgs84_operation(name: &str) -> CoordinateOperation {
         preferred: true,
         approximate: false,
         superseded: false,
-        domain: crate::operation::OperationDomain::Geographic2D,
+        domain: crate::operation::OperationDomain::HorizontalOnly,
         method: OperationMethod::Helmert {
             params: *datum::NAD27.helmert_to_wgs84().unwrap(),
         },
@@ -455,7 +455,10 @@ fn paris_ed50_aoi_selects_matching_most_accurate_operation() {
     assert!((actual.0 - expected.0).abs() < 1e-12);
     assert!((actual.1 - expected.1).abs() < 1e-12);
     assert!((actual.2 - expected.2).abs() < 1e-9);
-    assert_eq!(t.selected_operation().domain, OperationDomain::Geographic2D);
+    assert_eq!(
+        t.selected_operation().domain,
+        OperationDomain::HorizontalOnly
+    );
 }
 
 #[test]
@@ -2010,7 +2013,7 @@ fn geoid_grid_with_helmert_horizontal_fails_closed() {
         preferred: true,
         approximate: false,
         superseded: false,
-        domain: crate::operation::OperationDomain::Geographic3D,
+        domain: crate::operation::OperationDomain::IncludesHeight,
         method: OperationMethod::Helmert {
             params: datum::OSGB36.helmert_to_wgs84().unwrap().inverse(),
         },

@@ -22,8 +22,9 @@ impl Coord {
 /// - **Geographic CRS**: x/y are longitude/latitude in degrees
 /// - **Projected CRS**: x/y are easting/northing in the CRS's native linear unit
 /// - without explicit vertical components, `z` is ellipsoidal height.
-///   Geographic-2D-only datum operations preserve it; 3D-domain operations
-///   may change it
+///   Horizontal-only datum operations preserve it when a requested
+///   endpoint is 2D; 3D/geocentric endpoint pairs and `IncludesHeight`
+///   operations may change it
 /// - with explicit vertical components, `z` follows their declared height
 ///   semantics and units
 #[derive(Debug, Clone, Copy, PartialEq)]

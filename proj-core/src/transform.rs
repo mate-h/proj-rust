@@ -41,9 +41,9 @@ use pipeline::{PipelineSourceXyUnits, PipelineTargetXyUnits};
 /// Geoid-grid vertical transforms compose with the pre-datum-shift
 /// ellipsoidal height: applying one across a 3D Helmert/geocentric horizontal
 /// pipeline would silently drop the datum shift's ellipsoidal-height change.
-/// Geographic-2D-only Helmert steps preserve height (push/pop), so they can
-/// compose. Reject the unsupported 3D composition at construction instead of
-/// producing wrong heights.
+/// Horizontal-only Helmert steps preserve height (push/pop) when a
+/// requested endpoint is 2D, so they can compose. Reject the unsupported 3D
+/// composition at construction instead of producing wrong heights.
 fn validate_vertical_composition(
     vertical: &VerticalTransform,
     pipeline: &CompiledOperationPipeline,
@@ -737,9 +737,10 @@ impl Transform {
 
     /// Without a vertical CRS on either side, `convert_3d` heights are
     /// ellipsoidal. The pipeline owns `z` when it actually changes that
-    /// height (3D-domain Helmert/affine or geocentric CRS framing).
-    /// Geographic-2D-only operations restore height via push/pop, so the
-    /// vertical transform keeps the caller's `z`. With vertical CRSs present,
+    /// height (`IncludesHeight` Helmert/affine or geocentric CRS framing).
+    /// Horizontal-only operations restore height via push/pop when a
+    /// requested endpoint is 2D, so the vertical transform keeps the
+    /// caller's `z`. With vertical CRSs present,
     /// the vertical transform owns `z` (gravity-related heights are
     /// unaffected by ellipsoidal datum math).
     fn pipeline_owns_height(&self, pipeline: &CompiledOperationPipeline) -> bool {

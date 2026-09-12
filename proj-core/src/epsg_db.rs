@@ -449,7 +449,7 @@ fn parse_db() -> RegistryDb {
                 preferred: flags & FLAG_PREFERRED != 0,
                 approximate: flags & FLAG_APPROXIMATE != 0,
                 superseded: flags & FLAG_SUPERSEDED != 0,
-                domain: operation_domain(source_crs_epsg, target_crs_epsg, &geographic_crs),
+                domain: OperationDomain::IncludesHeight,
                 method,
             },
         );
@@ -572,6 +572,15 @@ fn parse_db() -> RegistryDb {
     }
     let _ = offset;
 
+    for operation in operations.values_mut() {
+        operation.domain = operation_domain(
+            operation.source_crs_epsg.unwrap_or(0),
+            operation.target_crs_epsg.unwrap_or(0),
+            &geocentric_crs,
+            &compound_crs,
+        );
+    }
+
     RegistryDb {
         datums,
         datum_ellipsoid_codes,
@@ -589,20 +598,39 @@ fn parse_db() -> RegistryDb {
     }
 }
 
-/// Registry operations are generated from geographic 2D source/target CRS.
-/// Geographic 3D CRS are stored as compounds, so a match there records a 3D
-/// domain for when those operations are added.
+/// Infer an operation's EPSG domain from its source/target CRS records.
+///
+/// Geocentric CRS and ellipsoidal-height compounds include height;
+/// everything else is horizontal-only. Mixed pairs take `IncludesHeight`.
 fn operation_domain(
     source_crs_epsg: u32,
     target_crs_epsg: u32,
-    geographic_crs: &BTreeMap<u32, GeographicRecord>,
+    geocentric_crs: &BTreeMap<u32, GeocentricRecord>,
+    compound_crs: &BTreeMap<u32, CompoundRecord>,
 ) -> OperationDomain {
-    for code in [source_crs_epsg, target_crs_epsg] {
-        if code != 0 && geographic_crs.contains_key(&code) {
-            return OperationDomain::Geographic2D;
-        }
+    let source = crs_domain(source_crs_epsg, geocentric_crs, compound_crs);
+    let target = crs_domain(target_crs_epsg, geocentric_crs, compound_crs);
+    if source == OperationDomain::IncludesHeight || target == OperationDomain::IncludesHeight {
+        OperationDomain::IncludesHeight
+    } else {
+        OperationDomain::HorizontalOnly
     }
-    OperationDomain::Geographic2D
+}
+
+fn crs_domain(
+    code: u32,
+    geocentric_crs: &BTreeMap<u32, GeocentricRecord>,
+    compound_crs: &BTreeMap<u32, CompoundRecord>,
+) -> OperationDomain {
+    if geocentric_crs.contains_key(&code)
+        || compound_crs
+            .get(&code)
+            .is_some_and(|crs| crs.vertical_kind == VERTICAL_COMPONENT_ELLIPSOIDAL)
+    {
+        OperationDomain::IncludesHeight
+    } else {
+        OperationDomain::HorizontalOnly
+    }
 }
 
 fn decode_projection_method(method_id: u8, params: [f64; 7]) -> ProjectionMethod {
@@ -1181,5 +1209,56 @@ mod tests {
         ));
         assert!(operation.uses_grids());
         assert!(operation.metadata().uses_grids);
+    }
+
+    fn domain_of(code: u32) -> OperationDomain {
+        lookup(code)
+            .map(|crs| crs.operation_domain())
+            .unwrap_or(OperationDomain::HorizontalOnly)
+    }
+
+    fn domain_of_pair(source: u32, target: u32) -> OperationDomain {
+        match (domain_of(source), domain_of(target)) {
+            (OperationDomain::HorizontalOnly, OperationDomain::HorizontalOnly) => {
+                OperationDomain::HorizontalOnly
+            }
+            _ => OperationDomain::IncludesHeight,
+        }
+    }
+
+    #[test]
+    fn operation_domain_follows_crs_kind() {
+        use OperationDomain::*;
+        let cases = [
+            (4326, HorizontalOnly),
+            (28992, HorizontalOnly),
+            (7415, HorizontalOnly),
+            (4979, IncludesHeight),
+            (4978, IncludesHeight),
+        ];
+        for (code, expected) in cases {
+            assert_eq!(domain_of(code), expected, "EPSG:{code}");
+        }
+        assert_eq!(
+            domain_of_pair(4326, 4979),
+            IncludesHeight,
+            "geographic + geographic 3D"
+        );
+        assert_eq!(
+            domain_of_pair(4326, 4978),
+            IncludesHeight,
+            "geographic + geocentric"
+        );
+    }
+
+    #[test]
+    fn registry_operations_match_source_target_crs_domain() {
+        for operation in db().operations.values() {
+            let expected = domain_of_pair(
+                operation.source_crs_epsg.unwrap_or(0),
+                operation.target_crs_epsg.unwrap_or(0),
+            );
+            assert_eq!(operation.domain, expected, "operation {:?}", operation.id);
+        }
     }
 }

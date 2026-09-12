@@ -520,7 +520,7 @@ fn identity_metadata(
         preferred: true,
         approximate: false,
         uses_grids: false,
-        domain: crate::operation::OperationDomain::None,
+        domain: crate::operation::OperationDomain::IncludesHeight,
     }
 }
 

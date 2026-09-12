@@ -4,22 +4,26 @@
 mod c_proj_ffi;
 
 use c_proj_ffi::CProjTransform;
-use proj_core::Transform;
+use proj_core::{CoordinateOperationId, Transform};
 
 struct ReferencePoint3D {
     from_epsg: u32,
     to_epsg: u32,
+    /// When set, pin proj-core to this registry operation so the live
+    /// comparison is not a selection residual against C PROJ's default.
+    operation_epsg: Option<u32>,
     input: (f64, f64, f64),
     tolerance_xy: f64,
     tolerance_z: f64,
     description: &'static str,
 }
 
-fn cases() -> [ReferencePoint3D; 11] {
+fn cases() -> [ReferencePoint3D; 12] {
     [
         ReferencePoint3D {
             from_epsg: 4326,
             to_epsg: 3857,
+            operation_epsg: None,
             input: (-74.006, 40.7128, 15.0),
             tolerance_xy: 0.001,
             tolerance_z: 1e-9,
@@ -28,6 +32,7 @@ fn cases() -> [ReferencePoint3D; 11] {
         ReferencePoint3D {
             from_epsg: 3857,
             to_epsg: 4326,
+            operation_epsg: None,
             input: (-8238310.0, 4970072.0, 15.0),
             tolerance_xy: 1e-7,
             tolerance_z: 1e-9,
@@ -37,6 +42,7 @@ fn cases() -> [ReferencePoint3D; 11] {
         ReferencePoint3D {
             from_epsg: 4277,
             to_epsg: 4326,
+            operation_epsg: None,
             input: (-0.1278, 51.5074, 45.0),
             tolerance_xy: 0.001,
             tolerance_z: 1e-9,
@@ -45,6 +51,7 @@ fn cases() -> [ReferencePoint3D; 11] {
         ReferencePoint3D {
             from_epsg: 28992,
             to_epsg: 4978,
+            operation_epsg: None,
             input: (155_000.0, 463_000.0, 43.0),
             tolerance_xy: 0.01,
             tolerance_z: 0.01,
@@ -53,14 +60,16 @@ fn cases() -> [ReferencePoint3D; 11] {
         ReferencePoint3D {
             from_epsg: 4326,
             to_epsg: 27700,
+            operation_epsg: None,
             input: (-0.1278, 51.5074, 45.0),
-            tolerance_xy: 1.0,
+            tolerance_xy: 0.01,
             tolerance_z: 1e-9,
             description: "WGS84 3D to British National Grid",
         },
         ReferencePoint3D {
             from_epsg: 4326,
             to_epsg: 27700,
+            operation_epsg: None,
             input: (-0.1278, 51.5074, 10_000.0),
             tolerance_xy: 0.01,
             tolerance_z: 1e-9,
@@ -69,6 +78,7 @@ fn cases() -> [ReferencePoint3D; 11] {
         ReferencePoint3D {
             from_epsg: 27700,
             to_epsg: 4326,
+            operation_epsg: None,
             input: (530000.0, 180000.0, 45.0),
             tolerance_xy: 1e-6,
             tolerance_z: 1e-9,
@@ -77,6 +87,7 @@ fn cases() -> [ReferencePoint3D; 11] {
         ReferencePoint3D {
             from_epsg: 4326,
             to_epsg: 4978,
+            operation_epsg: None,
             input: (-74.006, 40.7128, 10.0),
             tolerance_xy: 1e-4,
             tolerance_z: 1e-4,
@@ -85,6 +96,7 @@ fn cases() -> [ReferencePoint3D; 11] {
         ReferencePoint3D {
             from_epsg: 4979,
             to_epsg: 4978,
+            operation_epsg: None,
             input: (-74.006, 40.7128, 10.0),
             tolerance_xy: 1e-4,
             tolerance_z: 1e-4,
@@ -93,6 +105,7 @@ fn cases() -> [ReferencePoint3D; 11] {
         ReferencePoint3D {
             from_epsg: 4978,
             to_epsg: 4326,
+            operation_epsg: None,
             input: (
                 1_334_000.544_686_07,
                 -4_654_052.129_206_82,
@@ -102,9 +115,20 @@ fn cases() -> [ReferencePoint3D; 11] {
             tolerance_z: 1e-6,
             description: "NYC ECEF to WGS84 geographic",
         },
+        // Default ranking picks EPSG:1237; C PROJ prefers 1238 (scale 0.219).
+        ReferencePoint3D {
+            from_epsg: 4984,
+            to_epsg: 4978,
+            operation_epsg: Some(1238),
+            input: (3_974_068.0, 0.0, 4_967_632.0),
+            tolerance_xy: 1e-9,
+            tolerance_z: 1e-9,
+            description: "WGS 72 geocentric to WGS 84 ECEF via EPSG:1238",
+        },
         ReferencePoint3D {
             from_epsg: 32618,
             to_epsg: 4978,
+            operation_epsg: None,
             input: (583960.311_157_47, 4_507_523.066_994_61, 10.0),
             tolerance_xy: 1e-3,
             tolerance_z: 1e-3,
@@ -118,12 +142,28 @@ fn proj_core_matches_live_c_proj_for_3d_cases() {
     let mut failures = Vec::new();
 
     for case in cases() {
-        let transform = Transform::from_epsg(case.from_epsg, case.to_epsg).unwrap_or_else(|e| {
+        let from = format!("EPSG:{}", case.from_epsg);
+        let to = format!("EPSG:{}", case.to_epsg);
+        let transform = match case.operation_epsg {
+            Some(operation_epsg) => {
+                Transform::from_operation(CoordinateOperationId(operation_epsg), &from, &to)
+            }
+            None => Transform::from_epsg(case.from_epsg, case.to_epsg),
+        }
+        .unwrap_or_else(|e| {
             panic!(
-                "{}: failed to create proj-core transform EPSG:{}->EPSG:{}: {e}",
-                case.description, case.from_epsg, case.to_epsg
+                "{}: failed to create proj-core transform {from}->{to}: {e}",
+                case.description
             )
         });
+        if let Some(operation_epsg) = case.operation_epsg {
+            assert_eq!(
+                transform.selected_operation().id,
+                Some(CoordinateOperationId(operation_epsg)),
+                "{}: expected operation EPSG:{operation_epsg}",
+                case.description
+            );
+        }
         let c_transform = CProjTransform::new_known_crs(
             &format!("EPSG:{}", case.from_epsg),
             &format!("EPSG:{}", case.to_epsg),

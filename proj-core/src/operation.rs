@@ -345,24 +345,20 @@ pub enum OperationMatchKind {
     Explicit,
 }
 
-/// Declared CRS domain for which a coordinate operation is valid.
+/// Declared domain a coordinate operation is valid in.
 ///
-/// EPSG records an operation against a specific source/target CRS type. A
-/// Helmert valid only in the geographic 2D domain is applied with height
-/// passthrough (C PROJ `+proj=push +v_3` / `+proj=pop +v_3`); applying the
-/// rotation to height would produce an invalid ellipsoidal height.
+/// `HorizontalOnly` means height is not a datum parameter (C PROJ
+/// `+proj=push +v_3` / `+proj=pop +v_3` when a requested endpoint is 2D).
+/// `IncludesHeight` means Helmert may change height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OperationDomain {
-    /// No declared CRS domain.
+    /// Shift is valid only on the horizontal component. Height is not a
+    /// datum parameter (push/pop candidate).
+    HorizontalOnly,
+    /// Height is a datum parameter. Helmert may change it.
     #[default]
-    None,
-    /// Valid only for geographic 2D CRS.
-    Geographic2D,
-    /// Valid for geographic 3D CRS.
-    Geographic3D,
-    /// Valid for geocentric (ECEF) CRS.
-    Geocentric,
+    IncludesHeight,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -827,7 +823,7 @@ mod tests {
             preferred: true,
             approximate: false,
             superseded: false,
-            domain: OperationDomain::Geographic2D,
+            domain: OperationDomain::HorizontalOnly,
             method: OperationMethod::Identity,
         }
     }
