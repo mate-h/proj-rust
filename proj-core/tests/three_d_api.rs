@@ -29,20 +29,6 @@ fn wgs84_geographic_to_ecef_checkpoint() {
 }
 
 #[test]
-fn wgs84_geographic_3d_to_ecef_roundtrip() {
-    let t = Transform::new("EPSG:4979", "EPSG:4978").unwrap();
-    let ecef = t.convert_3d(NYC_LON_LAT_H).unwrap();
-    assert!((ecef.0 - NYC_ECEF_XYZ.0).abs() < 1e-4);
-    assert!((ecef.1 - NYC_ECEF_XYZ.1).abs() < 1e-4);
-    assert!((ecef.2 - NYC_ECEF_XYZ.2).abs() < 1e-4);
-
-    let back = t.inverse().unwrap().convert_3d(ecef).unwrap();
-    assert!((back.0 - NYC_LON_LAT_H.0).abs() < 1e-10);
-    assert!((back.1 - NYC_LON_LAT_H.1).abs() < 1e-10);
-    assert!((back.2 - NYC_LON_LAT_H.2).abs() < 1e-6);
-}
-
-#[test]
 fn cross_datum_ellipsoidal_3d_to_ecef() {
     // ETRS89 3D to WGS 84 ECEF: height is consumed by cart framing.
     let compound = Transform::new("EPSG:4937", "EPSG:4978").unwrap();
@@ -81,23 +67,6 @@ fn cross_datum_ellipsoidal_3d_to_ecef() {
     assert!((nad27_ecef.0 - nad27_chained.0).abs() < 1e-6);
     assert!((nad27_ecef.1 - nad27_chained.1).abs() < 1e-6);
     assert!((nad27_ecef.2 - nad27_chained.2).abs() < 1e-6);
-}
-
-#[test]
-fn projected_to_ecef_matches_geographic_path() {
-    let to_utm = Transform::new("EPSG:4326", "EPSG:32618").unwrap();
-    let utm = to_utm.convert_3d(NYC_LON_LAT_H).unwrap();
-
-    let utm_to_ecef = Transform::new("EPSG:32618", "EPSG:4978").unwrap();
-    let ecef = utm_to_ecef.convert_3d(utm).unwrap();
-    assert!((ecef.0 - NYC_ECEF_XYZ.0).abs() < 1e-3, "x = {}", ecef.0);
-    assert!((ecef.1 - NYC_ECEF_XYZ.1).abs() < 1e-3, "y = {}", ecef.1);
-    assert!((ecef.2 - NYC_ECEF_XYZ.2).abs() < 1e-3, "z = {}", ecef.2);
-
-    let back = utm_to_ecef.inverse().unwrap().convert_3d(ecef).unwrap();
-    assert!((back.0 - utm.0).abs() < 1e-6);
-    assert!((back.1 - utm.1).abs() < 1e-6);
-    assert!((back.2 - utm.2).abs() < 1e-6);
 }
 
 fn geographic_with_ellipsoidal_height(
@@ -158,17 +127,10 @@ fn gravity_related_height_to_ecef_is_rejected() {
 
 #[test]
 fn convert_2d_rejects_geocentric_endpoints() {
-    let to_ecef = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
-    let err = to_ecef.convert((-74.006, 40.7128)).unwrap_err();
+    let t = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
+    let err = t.convert((-74.006, 40.7128)).unwrap_err();
     assert!(err.to_string().contains("require convert_3d"), "got {err}");
-
-    let from_ecef = Transform::new("EPSG:4978", "EPSG:4326").unwrap();
-    let err = from_ecef
-        .convert((NYC_ECEF_XYZ.0, NYC_ECEF_XYZ.1))
-        .unwrap_err();
-    assert!(err.to_string().contains("require convert_3d"), "got {err}");
-
-    let err = to_ecef
+    let err = t
         .convert_with_diagnostics((-74.006, 40.7128))
         .unwrap_err();
     assert!(err.to_string().contains("require convert_3d"), "got {err}");

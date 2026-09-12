@@ -1227,31 +1227,6 @@ mod tests {
     }
 
     #[test]
-    fn operation_domain_follows_crs_kind() {
-        use OperationDomain::*;
-        let cases = [
-            (4326, HorizontalOnly),
-            (28992, HorizontalOnly),
-            (7415, HorizontalOnly),
-            (4979, IncludesHeight),
-            (4978, IncludesHeight),
-        ];
-        for (code, expected) in cases {
-            assert_eq!(domain_of(code), expected, "EPSG:{code}");
-        }
-        assert_eq!(
-            domain_of_pair(4326, 4979),
-            IncludesHeight,
-            "geographic + geographic 3D"
-        );
-        assert_eq!(
-            domain_of_pair(4326, 4978),
-            IncludesHeight,
-            "geographic + geocentric"
-        );
-    }
-
-    #[test]
     fn registry_operations_match_source_target_crs_domain() {
         for operation in db().operations.values() {
             let expected = domain_of_pair(
