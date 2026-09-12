@@ -39,12 +39,12 @@ Coordinates use CRS-native units:
 - Geographic CRS coordinates are longitude/latitude in degrees.
 - Projected CRS coordinates use the CRS linear unit, such as metres or US survey feet.
 - Without explicit vertical components, `convert_3d()` treats `z` as
-  ellipsoidal height. Projection-only paths preserve it. Horizontal datum
-  shifts that are horizontal-only also preserve it when at
-  least one endpoint is 2D (the same `push`/`pop` `v_3` behaviour as default
-  libproj). Both-3D or both-geocentric pairs apply the full 3D Helmert.
-  Explicit vertical components preserve, convert, or transform `z` according
-  to their declared reference frames and units.
+  ellipsoidal height. Projection-only paths preserve it. Horizontal-only
+  datum shifts also preserve it when at least one endpoint is 2D
+  (`push`/`pop` `v_3`, like libproj). Both-3D or both-geocentric pairs
+  apply the full 3D Helmert. Explicit vertical components preserve,
+  convert, or transform `z` according to their declared reference frames
+  and units.
 
 Strict transform constructors reject a compound-to-2D CRS pair because that
 would silently discard an explicit vertical reference. For an intentionally
@@ -98,7 +98,7 @@ Custom definitions are accepted only when they map to this library's CRS model: 
 
 Operation selection candidates come only from the embedded registry, deterministic generated-registry records, explicit caller/parser-provided coordinate operations, and internal identity/no-datum-operation behavior. Selection does not synthesize Helmert, grid, or WGS84-compatible identity operations from datum metadata. CRS pairs without a registry/generated-registry operation, explicit operation, or identity path fail during transform construction.
 
-Geodetic ↔ geocentric pairs (for example `EPSG:4326`/`EPSG:4979` ↔ `EPSG:4978`, including cross-datum ellipsoidal-height compounds such as `EPSG:4937` → `EPSG:4978`) use the selected horizontal operation plus geocentric framing steps, analogous to how projected CRS pairs wrap projection forward/inverse around the selected operation. Gravity-related heights cannot target ECEF directly. Use `convert_3d` for ECEF coordinates — the 2D `convert` API rejects geocentric endpoints instead of returning X/Y only. Geographic inputs remain longitude/latitude in degrees with ellipsoidal height in metres.
+Geodetic to geocentric pairs such as `EPSG:4326` or `EPSG:4979` to `EPSG:4978`, and cross-datum ellipsoidal-height compounds such as `EPSG:4937` to `EPSG:4978`, use the selected horizontal operation plus geocentric framing. Gravity-related heights cannot target ECEF. Use `convert_3d` for ECEF coordinates.
 
 ## Grids
 

@@ -27,8 +27,7 @@ fn explicit_helmert_operations_match_c_proj() {
         let expected = c_proj
             .convert_3d(case.input)
             .unwrap_or_else(|error| panic!("{}: C PROJ failed: {error}", case.description));
-        // These EPSG records have a geographic-2D domain, so both engines
-        // preserve z (C PROJ via push/pop v_3).
+        // Geographic-2D records: both engines preserve z.
         let delta = (
             (actual.0 - expected.0).abs(),
             (actual.1 - expected.1).abs(),

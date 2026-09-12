@@ -25,10 +25,7 @@ pub(super) struct CompiledOperationPipeline {
     steps: SmallVec<[CompiledStep; 8]>,
     pub(super) source_xy_units: PipelineSourceXyUnits,
     pub(super) target_xy_units: PipelineTargetXyUnits,
-    /// True when the steps change ellipsoidal height (unwrapped
-    /// Helmert/geocentric datum math or a geocentric CRS endpoint).
-    /// Horizontal-only operations wrap those steps in push/pop when a
-    /// requested endpoint is 2D, so they do not count.
+    /// True when the steps change ellipsoidal height.
     pub(super) transforms_ellipsoidal_height: bool,
 }
 
@@ -313,11 +310,7 @@ fn require_xy_pipeline_supported(pipeline: &CompiledOperationPipeline) -> Result
     Ok(())
 }
 
-/// Like [`execute_pipeline_xy`] but keeps the pipeline's `z` output. `z` is
-/// in meters throughout; the x/y unit adapters do not touch it. Callers
-/// convert native ellipsoidal-height units at a geocentric CRS boundary.
-/// Horizontal-only Helmert steps restore the input height via push/pop
-/// when a requested endpoint is 2D.
+/// Like [`execute_pipeline_xy`] but keeps the pipeline's `z` (metres).
 pub(super) fn execute_pipeline_xyz(
     pipeline: &CompiledOperationPipeline,
     c: Coord3D,
@@ -375,8 +368,7 @@ pub(super) fn compile_pipeline(
             projection: make_projection(&projected.method(), projected.datum())?,
         });
     } else if let Some(geocentric) = source.as_geocentric() {
-        // Frame geocentric endpoints into geodetic radians like projections
-        // frame projected metres into geodetic radians.
+        // Frame geocentric endpoints into geodetic radians, like projections.
         steps.push(CompiledStep::GeocentricToGeodetic {
             ellipsoid: geocentric.datum().ellipsoid(),
         });
@@ -416,10 +408,8 @@ pub(super) fn compile_pipeline(
 
     cancel_redundant_geocentric_framing(&mut steps);
 
-    // Geocentric endpoints always own height via cart framing even when
-    // adjacent geodetic↔ECEF pairs cancel (for example identity ECEF↔ECEF).
-    // Helmert/cart steps inside a push/pop pair (2D-domain method with a 2D
-    // requested endpoint) restore height and do not count as transforming it.
+    // Geocentric endpoints always transform height via cart framing.
+    // Push/pop pairs restore height, so they do not count.
     let transforms_ellipsoidal_height = source.is_geocentric()
         || target.is_geocentric()
         || steps_transform_ellipsoidal_height(&steps);
@@ -473,11 +463,10 @@ fn geocentric_framing_cancels(left: &CompiledStep, right: &CompiledStep) -> bool
     }
 }
 
-/// Drop adjacent geodetic↔ECEF pairs on the same ellipsoid.
+/// Drop adjacent geodetic to ECEF pairs on the same ellipsoid.
 ///
-/// Helmert/geocentric-affine sandwiches always enter and leave geodetic space,
-/// so geocentric CRS framing otherwise inserts a redundant round-trip next to
-/// those steps.
+/// Helmert sandwiches already enter and leave geodetic space, so extra
+/// geocentric framing next to them is redundant.
 fn cancel_redundant_geocentric_framing(steps: &mut SmallVec<[CompiledStep; 8]>) {
     loop {
         let mut removed = false;
@@ -649,10 +638,8 @@ fn compile_operation(
     Ok(())
 }
 
-/// libproj wraps Helmert in `push`/`pop` `v_3` only when the operation is
-/// horizontal-only and at least one requested endpoint is 2D. Two 3D or
-/// geocentric endpoints apply the full 3D Helmert even if the registry record
-/// is a 2D method.
+/// Preserve height when the operation is horizontal-only and at least one
+/// requested endpoint is 2D.
 fn preserve_ellipsoidal_height(
     domain: OperationDomain,
     requested_pair: Option<(&CrsDef, &CrsDef)>,

@@ -345,18 +345,17 @@ pub enum OperationMatchKind {
     Explicit,
 }
 
-/// Declared domain a coordinate operation is valid in.
+/// Whether a coordinate operation treats height as part of the shift.
 ///
-/// `HorizontalOnly` means height is not a datum parameter (C PROJ
-/// `+proj=push +v_3` / `+proj=pop +v_3` when a requested endpoint is 2D).
-/// `IncludesHeight` means Helmert may change height.
+/// `HorizontalOnly` operations preserve height when a requested endpoint is
+/// 2D (`+proj=push +v_3` / `+proj=pop +v_3`). `IncludesHeight` operations may
+/// change it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OperationDomain {
-    /// Shift is valid only on the horizontal component. Height is not a
-    /// datum parameter (push/pop candidate).
+    /// Height is not part of the shift.
     HorizontalOnly,
-    /// Height is a datum parameter. Helmert may change it.
+    /// Height may change.
     #[default]
     IncludesHeight,
 }
@@ -377,7 +376,7 @@ pub struct CoordinateOperation {
     /// EPSG records a same-CRS-pair replacement for this operation; ranking
     /// prefers the replacement, matching C PROJ.
     pub superseded: bool,
-    /// Declared source/target CRS domain for this operation.
+    /// Source/target CRS domain.
     pub domain: OperationDomain,
     pub method: OperationMethod,
 }

@@ -38,12 +38,9 @@ use pipeline::PARALLEL_MIN_ITEMS_PER_THREAD;
 #[cfg(test)]
 use pipeline::{PipelineSourceXyUnits, PipelineTargetXyUnits};
 
-/// Geoid-grid vertical transforms compose with the pre-datum-shift
-/// ellipsoidal height: applying one across a 3D Helmert/geocentric horizontal
-/// pipeline would silently drop the datum shift's ellipsoidal-height change.
-/// Horizontal-only Helmert steps preserve height (push/pop) when a
-/// requested endpoint is 2D, so they can compose. Reject the unsupported 3D
-/// composition at construction instead of producing wrong heights.
+/// Geoid grids compose with the pre-datum ellipsoidal height. Reject them on
+/// pipelines that change that height. Horizontal-only Helmert can compose
+/// because push/pop restores it.
 fn validate_vertical_composition(
     vertical: &VerticalTransform,
     pipeline: &CompiledOperationPipeline,
@@ -286,9 +283,7 @@ impl Transform {
 
     /// Transform a single 2D coordinate.
     ///
-    /// This API is XY-only. Transforms involving a geocentric (ECEF) CRS must
-    /// use [`Self::convert_3d`]; calling this method returns an error instead of
-    /// silently dropping Z.
+    /// XY-only. Geocentric endpoints must use [`Self::convert_3d`].
     pub fn convert<T: Transformable>(&self, coord: T) -> Result<T> {
         let c = coord.to_coord();
         let result = self.convert_coord(c)?;
@@ -339,9 +334,8 @@ impl Transform {
 
     /// Transform a single 2D coordinate and report the operation actually used.
     ///
-    /// This API is XY-only: it does not apply or sample configured vertical
-    /// transforms, and transforms involving a geocentric (ECEF) CRS must use
-    /// [`Self::convert_3d_with_diagnostics`].
+    /// XY-only: it does not apply configured vertical transforms. Geocentric
+    /// endpoints must use [`Self::convert_3d_with_diagnostics`].
     ///
     /// When the selected grid-backed operation misses grid coverage, this
     /// reports the coverage misses and the lower-ranked fallback operation that
@@ -735,24 +729,15 @@ impl Transform {
         )))
     }
 
-    /// Without a vertical CRS on either side, `convert_3d` heights are
-    /// ellipsoidal. The pipeline owns `z` when it actually changes that
-    /// height (`IncludesHeight` Helmert/affine or geocentric CRS framing).
-    /// Horizontal-only operations restore height via push/pop when a
-    /// requested endpoint is 2D, so the vertical transform keeps the
-    /// caller's `z`. With vertical CRSs present,
-    /// the vertical transform owns `z` (gravity-related heights are
-    /// unaffected by ellipsoidal datum math).
+    /// True when this pipeline changes ellipsoidal height and no vertical CRS
+    /// owns `z`.
     fn pipeline_owns_height(&self, pipeline: &CompiledOperationPipeline) -> bool {
         pipeline.transforms_ellipsoidal_height
             && matches!(self.vertical_transform, VerticalTransform::None { .. })
     }
 
-    /// Run a pipeline that owns `z` (Helmert / ECEF framing).
-    ///
-    /// `execute_pipeline_xyz` treats height as metres. Only a mixed
-    /// geographic or projected to ECEF pair may rescale, and only when the
-    /// non-geocentric side has a non-metre vertical unit.
+    /// Run a pipeline that owns `z`. Height is metres except at a mixed
+    /// geodetic to ECEF boundary with a non-metre vertical unit.
     fn execute_pipeline_owned(
         &self,
         pipeline: &CompiledOperationPipeline,

@@ -99,7 +99,7 @@ impl ParsedCrs {
 /// - **URN format**: `"urn:ogc:def:crs:EPSG::4326"`
 /// - **OGC CRS84**: `"CRS:84"`, `"OGC:CRS84"`
 /// - **PROJ strings**: `"+proj=utm +zone=18 +datum=WGS84"`, `"+proj=cart +datum=WGS84"`
-/// - **PROJJSON**: `{"type": "ProjectedCRS", ...}` / geocentric `GeodeticCRS`
+/// - **PROJJSON**: `{"type": "ProjectedCRS", ...}` or geocentric `GeodeticCRS`
 /// - **WKT1**: `GEOGCS[...]` / `PROJCS[...]` / `GEOCCS[...]` / `COMPD_CS[...]`
 /// - **WKT2**: `GEODCRS[...]` / `GEOGCRS[...]` / `PROJCRS[...]` / `COMPOUNDCRS[...]`
 pub fn parse_crs(s: &str) -> Result<CrsDef> {

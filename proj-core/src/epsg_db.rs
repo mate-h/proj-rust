@@ -598,10 +598,10 @@ fn parse_db() -> RegistryDb {
     }
 }
 
-/// Infer an operation's EPSG domain from its source/target CRS records.
+/// Infer an operation's domain from its source/target CRS records.
 ///
-/// Geocentric CRS and ellipsoidal-height compounds include height;
-/// everything else is horizontal-only. Mixed pairs take `IncludesHeight`.
+/// Geocentric CRS and ellipsoidal-height compounds include height.
+/// Mixed pairs take `IncludesHeight`.
 fn operation_domain(
     source_crs_epsg: u32,
     target_crs_epsg: u32,

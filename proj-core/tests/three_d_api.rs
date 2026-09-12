@@ -3,7 +3,7 @@ use proj_core::{
     Transform, VerticalCrsDef,
 };
 
-/// WGS 84 geodetic (lon/lat/h) → ECEF checkpoint for NYC from C PROJ /
+/// WGS 84 geodetic (lon/lat/h) → ECEF checkpoint for NYC from C PROJ and
 /// GeographicLib cartography on the WGS 84 ellipsoid.
 const NYC_LON_LAT_H: (f64, f64, f64) = (-74.006, 40.7128, 10.0);
 const NYC_ECEF_XYZ: (f64, f64, f64) = (
@@ -44,8 +44,7 @@ fn wgs84_geographic_3d_to_ecef_roundtrip() {
 
 #[test]
 fn cross_datum_ellipsoidal_3d_to_ecef() {
-    // ETRS89 3D (ellipsoidal height) → WGS 84 ECEF must be allowed: height is
-    // consumed by cart framing after the selected horizontal datum operation.
+    // ETRS89 3D to WGS 84 ECEF: height is consumed by cart framing.
     let compound = Transform::new("EPSG:4937", "EPSG:4978").unwrap();
     assert!(
         compound
@@ -57,8 +56,7 @@ fn cross_datum_ellipsoidal_3d_to_ecef() {
         compound.vertical_diagnostics()
     );
 
-    // Both-3D/geocentric endpoints apply the Helmert in 3D, so ETRS89
-    // geographic 3D → WGS 84 ECEF matches the geocentric ETRS89 path.
+    // Both-3D endpoints apply Helmert in 3D, so this matches the ECEF path.
     let from_compound = compound.convert_3d(NYC_LON_LAT_H).unwrap();
     let via_etrs89_ecef = {
         let to_etrs89 = Transform::new("EPSG:4937", "EPSG:4936").unwrap();
@@ -228,8 +226,7 @@ fn helmert_backed_projected_transform_uses_source_height_for_xy() {
     assert!(de.abs() > 0.1, "easting delta = {de}");
     assert!(dn.abs() > 0.05, "northing delta = {dn}");
 
-    // OSGB36 Helmert is geographic-2D-only, so height is preserved (C PROJ
-    // push/pop v_3) while the cart+Helmert still uses source height for XY.
+    // OSGB36 Helmert is geographic-2D, so height is preserved.
     assert!(
         (ground.2 - 0.0).abs() < 1e-12,
         "ground height = {}",
@@ -244,7 +241,7 @@ fn helmert_backed_projected_transform_uses_source_height_for_xy() {
 
 #[test]
 fn wgs72_geocentric_to_wgs84_applies_full_3d_helmert() {
-    // Both endpoints are geocentric, so Helmert runs in 3D (no push/pop).
+    // Both endpoints are geocentric, so Helmert runs in 3D.
     let ecef = Transform::new("EPSG:4322", "EPSG:4984")
         .unwrap()
         .convert_3d((0.0, 51.0, 100.0))
@@ -265,8 +262,7 @@ fn wgs72_geocentric_to_wgs84_applies_full_3d_helmert() {
 
 #[test]
 fn rd_new_to_ecef_preserves_amersfoort_height() {
-    // Amersfoort to WGS 84 (4) is geographic 2D (method 9607). Applying the
-    // rotation to height is ~43 m off default libproj at this point.
+    // Amersfoort to WGS 84 (4) is geographic 2D; rotating height is ~43 m off libproj.
     let t = Transform::new("EPSG:28992", "EPSG:4978").unwrap();
     assert!(
         t.selected_operation().domain == OperationDomain::HorizontalOnly,

@@ -140,17 +140,15 @@ impl CrsDef {
         matches!(self, CrsDef::Compound(_))
     }
 
-    /// True when this is a geographic or projected CRS without an explicit
-    /// vertical component. Geocentric CRS and compounds are three-dimensional.
+    /// Geographic or projected CRS with no vertical component.
     pub fn is_horizontal_2d(&self) -> bool {
         matches!(self, CrsDef::Geographic(_) | CrsDef::Projected(_))
     }
 
-    /// EPSG operation domain implied by this CRS type.
+    /// Domain implied by this CRS type.
     ///
-    /// Geocentric CRS and ellipsoidal-height compounds are three-dimensional.
-    /// Gravity-related compounds stay horizontal-only: Helmert still applies
-    /// to the horizontal component only.
+    /// Geocentric CRS and ellipsoidal-height compounds include height.
+    /// Gravity-related compounds stay horizontal-only.
     pub fn operation_domain(&self) -> OperationDomain {
         if self.is_geocentric()
             || self
@@ -202,8 +200,6 @@ impl CrsDef {
     /// This intentionally drops an explicit vertical component. Use it only for
     /// horizontal-only workflows such as AOI filtering, footprint reprojection,
     /// and 2D previews where `z` is outside the operation contract.
-    /// Geocentric CRS definitions are returned unchanged: they are inherently
-    /// three-dimensional and have no separate vertical component to drop.
     pub fn horizontal_crs(&self) -> Option<CrsDef> {
         match self {
             CrsDef::Geographic(_) | CrsDef::Geocentric(_) | CrsDef::Projected(_) => {
