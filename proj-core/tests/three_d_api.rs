@@ -130,9 +130,7 @@ fn convert_2d_rejects_geocentric_endpoints() {
     let t = Transform::new("EPSG:4326", "EPSG:4978").unwrap();
     let err = t.convert((-74.006, 40.7128)).unwrap_err();
     assert!(err.to_string().contains("require convert_3d"), "got {err}");
-    let err = t
-        .convert_with_diagnostics((-74.006, 40.7128))
-        .unwrap_err();
+    let err = t.convert_with_diagnostics((-74.006, 40.7128)).unwrap_err();
     assert!(err.to_string().contains("require convert_3d"), "got {err}");
 }
 
